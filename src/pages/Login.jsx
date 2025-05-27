@@ -10,13 +10,12 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [notification, setNotification] = useState(null);
   const [showEmailVerificationModal, setShowEmailVerificationModal] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(false); // New state for cooldown
-  const [resendCountdown, setResendCountdown] = useState(0); // New state for countdown
+  const [resendCooldown, setResendCooldown] = useState(false);
+  const [resendCountdown, setResendCountdown] = useState(0);
 
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Effect to check for 'check_email' message from registration redirect
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get("message") === "check_email") {
@@ -24,11 +23,11 @@ const Login = () => {
         message: "Registration successful! Please check your email to verify your account.",
         type: "success",
       });
+
       navigate(location.pathname, { replace: true });
     }
   }, [location, navigate]);
 
-  // Effect for managing resend email cooldown
   useEffect(() => {
     let timer;
     const storedLastResend = localStorage.getItem("lastResendAttempt");
@@ -46,7 +45,7 @@ const Login = () => {
             if (prev <= 1) {
               clearInterval(timer);
               setResendCooldown(false);
-              localStorage.removeItem("lastResendAttempt"); // Clear when cooldown ends
+              localStorage.removeItem("lastResendAttempt");
               return 0;
             }
             return prev - 1;
@@ -55,8 +54,8 @@ const Login = () => {
       }
     }
 
-    return () => clearInterval(timer); // Cleanup timer on unmount
-  }, []); // Run only once on mount to check for stored cooldown
+    return () => clearInterval(timer);
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -83,8 +82,18 @@ const Login = () => {
         return;
       }
 
-      setNotification({ message: "Login successful!", type: "success" });
-      setTimeout(() => navigate("/Signature/Dashboard"), 1000);
+      if (data.user) {
+        const userRole = data.user.user_metadata?.role || "user";
+        setNotification({ message: "Login successful!", type: "success" });
+
+        if (userRole === "admin") {
+          setTimeout(() => navigate("/admin-dashboard"), 500);
+        } else {
+          setTimeout(() => navigate("/user-dashboard"), 500);
+        }
+      } else {
+        setNotification({ message: "An unexpected login state occurred.", type: "error" });
+      }
     } catch (err) {
       setNotification({ message: "An unexpected error occurred.", type: "error" });
       console.error("Login error:", err);
@@ -92,19 +101,19 @@ const Login = () => {
   };
 
   const handleResendVerification = async () => {
-    if (resendCooldown) return; // Prevent multiple clicks during cooldown
+    if (resendCooldown) return;
 
     setNotification(null);
     setResendCooldown(true);
     setResendCountdown(RESEND_COOLDOWN_SECONDS);
-    localStorage.setItem("lastResendAttempt", Date.now().toString()); // Store current time
+    localStorage.setItem("lastResendAttempt", Date.now().toString());
 
     let countdownTimer = setInterval(() => {
       setResendCountdown((prev) => {
         if (prev <= 1) {
           clearInterval(countdownTimer);
           setResendCooldown(false);
-          localStorage.removeItem("lastResendAttempt"); // Clear when cooldown ends
+          localStorage.removeItem("lastResendAttempt");
           return 0;
         }
         return prev - 1;
@@ -115,7 +124,7 @@ const Login = () => {
       type: "signup",
       email: email,
       options: {
-        emailRedirectTo: `${window.location.origin}/verify-email-success`,
+        emailRedirectTo: `${window.location.origin}/SignatureApp/verify-email-success`,
       },
     });
 
@@ -124,25 +133,22 @@ const Login = () => {
         message: `Failed to resend verification email: ${error.message}`,
         type: "error",
       });
-      // If resend failed for an unexpected reason, consider clearing cooldown
-      // or setting it to a shorter duration based on error type.
-      // For now, we'll let the countdown continue as planned.
     } else {
       setNotification({
         message: "Verification email sent! Please check your inbox.",
         type: "success",
       });
-      setShowEmailVerificationModal(false); // Close the modal
+      setShowEmailVerificationModal(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center px-4 py-8">
+    <div className="min-h-screen flex flex-col justify-center items-center px-4 py-8 bg-gray-50 dark:bg-gray-900">
       <div className="w-full max-w-md bg-white dark:bg-[#1a1a1a] p-8 rounded-lg shadow-xl animate-fade-in-up">
         <div className="text-center mb-8">
           <Link to="/" className="inline-block no-underline">
             <h1 className="text-4xl font-extrabold text-gray-800 dark:text-white hover:text-gray-600 dark:hover:text-gray-300 transition duration-200 ease-in-out">
-              Login to <span className="text-[var(--color-button-primary)]">SignSeal</span>
+              Login to <span style={{ color: "var(--color-button-primary)" }}>SignSeal</span>
             </h1>
           </Link>
         </div>
@@ -209,7 +215,7 @@ const Login = () => {
         <p className="text-center text-gray-600 dark:text-gray-400 mt-6">
           Don't have an account?{" "}
           <Link
-            to="/SignatureApp/register"
+            to="/register"
             className="text-[var(--color-button-primary)] hover:text-[var(--color-text-accent-light)] font-semibold transition duration-200"
           >
             Register here
@@ -217,7 +223,7 @@ const Login = () => {
         </p>
       </div>
 
-      {/* Standard Notification Component */}
+      {}
       {notification && (
         <Notification
           message={notification.message}
@@ -226,7 +232,7 @@ const Login = () => {
         />
       )}
 
-      {/* Email Verification Modal */}
+      {}
       {showEmailVerificationModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
           <div className="bg-white dark:bg-[#1a1a1a] p-8 rounded-lg shadow-xl max-w-sm w-full text-center">
@@ -239,15 +245,15 @@ const Login = () => {
             </p>
             <button
               onClick={handleResendVerification}
-              disabled={resendCooldown} // Disable button when cooldown is active
+              disabled={resendCooldown}
               className={`
-                    font-bold py-2 px-4 rounded-md shadow-md
-                    transition duration-200 ease-in-out
-                    ${
-                      resendCooldown
-                        ? "bg-gray-400 cursor-not-allowed" // Greyed out when disabled
-                        : "bg-[var(--color-button-primary)] hover:bg-[var(--color-button-primary-hover)] text-white"
-                    }
+                  font-bold py-2 px-4 rounded-md shadow-md
+                  transition duration-200 ease-in-out
+                  ${
+                    resendCooldown
+                      ? "bg-gray-400 cursor-not-allowed"
+                      : "bg-[var(--color-button-primary)] hover:bg-[var(--color-button-primary-hover)] text-white"
+                  }
                 `}
             >
               {resendCooldown ? `Resend in ${resendCountdown}s` : "Resend Verification Email"}
@@ -263,22 +269,6 @@ const Login = () => {
           </div>
         </div>
       )}
-
-      <style jsx>{`
-        @keyframes fade-in-up {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        .animate-fade-in-up {
-          animation: fade-in-up 0.6s ease-out forwards;
-        }
-      `}</style>
     </div>
   );
 };

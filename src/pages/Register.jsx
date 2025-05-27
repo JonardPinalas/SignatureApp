@@ -77,26 +77,25 @@ const Register = () => {
       }
       // --- END CLIENT-SIDE PASSWORD HASHING ---
 
-      // 3. Insert additional user profile into your custom 'users' table
-      // This includes the bcrypt-hashed password that you requested
-      const { error: insertError } = await supabase.from("users").insert({
-        id: userId,
-        email: email, 
-        password_hash: hashedPassword,
-        full_name: fullName,
-        title: title,
-        department: department,
-        is_verified: false,
-      });
+      // 3. Update additional user profile in your custom 'users' table
+      // This updates the row that was created by the trigger with extra fields
+      const { error: updateError } = await supabase
+        .from("users")
+        .update({
+          password_hash: hashedPassword,
+          full_name: fullName,
+          title: title,
+          department: department,
+          is_verified: false,
+        })
+        .eq("id", userId);
 
-      if (insertError) {
-        console.error("Error inserting into public.users table:", insertError.message);
+      if (updateError) {
+        console.error("Error updating public.users table:", updateError.message);
         setNotification({
           message: "Registration failed: Could not save profile data. Please try again.",
           type: "error",
         });
-        // Important: If public.users insertion fails, the user still exists in auth.users.
-        // You might need a server-side cleanup or a system to reconcile these states.
         return;
       }
 
