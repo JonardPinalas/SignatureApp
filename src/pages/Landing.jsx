@@ -1,9 +1,37 @@
-// frontend/src/pages/HomePage.jsx
+// frontend/src/pages/Landing.jsx
 
-import React from "react";
+import React, { useEffect, useState } from "react"; // Import useState and useEffect
 import { Link } from "react-router-dom";
+import { supabase } from "../utils/supabaseClient"; // Import Supabase client
 
 const Landing = () => {
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Check initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoading(false);
+    });
+
+    // Listen for auth state changes
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setLoading(false);
+    });
+
+    // Clean up the subscription
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
+
+  if (loading) {
+    // You can show a simple loading state or nothing while the session is being checked
+    return null; // Or <div style={{textAlign: 'center', padding: '50px'}}>Loading...</div>;
+  }
+
   return (
     <div
       className="min-h-screen flex flex-col items-center justify-center p-4 transition-colors duration-300"
@@ -23,28 +51,49 @@ const Landing = () => {
           SignSeal
         </h1>
         <nav className="space-x-6">
-          <Link
-            to="/login"
-            className="transition duration-300 ease-in-out font-medium"
-            style={{ color: "var(--brand-text)" }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--color-text-accent-light)")}
-            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--brand-text)")}
-          >
-            Login
-          </Link>
-          <Link
-            to="/register"
-            className="py-2 px-5 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 font-semibold"
-            style={{ backgroundColor: "var(--color-button-primary)", color: "white" }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.backgroundColor = "var(--color-button-primary-hover)")
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.backgroundColor = "var(--color-button-primary)")
-            }
-          >
-            Register
-          </Link>
+          {/* Conditional rendering for navigation buttons */}
+          {!session ? (
+            <>
+              <Link
+                to="/login"
+                className="transition duration-300 ease-in-out font-medium"
+                style={{ color: "var(--brand-text)" }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.color = "var(--color-text-accent-light)")
+                }
+                onMouseLeave={(e) => (e.currentTarget.style.color = "var(--brand-text)")}
+              >
+                Login
+              </Link>
+              <Link
+                to="/register"
+                className="py-2 px-5 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 font-semibold"
+                style={{ backgroundColor: "var(--color-button-primary)", color: "white" }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.backgroundColor = "var(--color-button-primary-hover)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.backgroundColor = "var(--color-button-primary)")
+                }
+              >
+                Register
+              </Link>
+            </>
+          ) : (
+            <Link
+              to="/user/dashboard" // Link to the user's dashboard
+              className="py-2 px-5 rounded-full shadow-lg transition duration-300 ease-in-out transform hover:scale-105 font-semibold"
+              style={{ backgroundColor: "var(--color-button-primary)", color: "white" }}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.backgroundColor = "var(--color-button-primary-hover)")
+              }
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.backgroundColor = "var(--color-button-primary)")
+              }
+            >
+              Dashboard
+            </Link>
+          )}
         </nav>
       </header>
 
@@ -74,19 +123,22 @@ const Landing = () => {
           Streamline your workflow with secure, legally binding electronic signatures. Fast,
           intuitive, and designed for the modern era.
         </p>
-        <Link
-          to="/register"
-          className="inline-block py-3 px-8 rounded-full shadow-xl transition duration-300 ease-in-out transform hover:scale-105 animate-fade-in-up delay-400 font-bold"
-          style={{ backgroundColor: "var(--color-button-primary)", color: "white" }}
-          onMouseEnter={(e) =>
-            (e.currentTarget.style.backgroundColor = "var(--color-button-primary-hover)")
-          }
-          onMouseLeave={(e) =>
-            (e.currentTarget.style.backgroundColor = "var(--color-button-primary)")
-          }
-        >
-          Get Started Free
-        </Link>
+        {/* Hide "Get Started Free" button if there's a session */}
+        {!session && (
+          <Link
+            to="/register"
+            className="inline-block py-3 px-8 rounded-full shadow-xl transition duration-300 ease-in-out transform hover:scale-105 animate-fade-in-up delay-400 font-bold"
+            style={{ backgroundColor: "var(--color-button-primary)", color: "white" }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.backgroundColor = "var(--color-button-primary-hover)")
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.backgroundColor = "var(--color-button-primary)")
+            }
+          >
+            Get Started Free
+          </Link>
+        )}
       </main>
 
       {/* Feature Highlights */}

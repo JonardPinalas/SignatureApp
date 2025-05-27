@@ -24,6 +24,7 @@ const Login = () => {
         type: "success",
       });
 
+      // Clear the query parameter after displaying the message
       navigate(location.pathname, { replace: true });
     }
   }, [location, navigate]);
@@ -87,9 +88,9 @@ const Login = () => {
         setNotification({ message: "Login successful!", type: "success" });
 
         if (userRole === "admin") {
-          setTimeout(() => navigate("/admin-dashboard"), 500);
+          setTimeout(() => navigate("/admin/dashboard"), 500);
         } else {
-          setTimeout(() => navigate("/user-dashboard"), 500);
+          setTimeout(() => navigate("/user/dashboard"), 500);
         }
       } else {
         setNotification({ message: "An unexpected login state occurred.", type: "error" });
@@ -215,7 +216,7 @@ const Login = () => {
         <p className="text-center text-gray-600 dark:text-gray-400 mt-6">
           Don't have an account?{" "}
           <Link
-            to="/register"
+            to="/register" // Assuming your register page is at /register
             className="text-[var(--color-button-primary)] hover:text-[var(--color-text-accent-light)] font-semibold transition duration-200"
           >
             Register here
@@ -223,7 +224,6 @@ const Login = () => {
         </p>
       </div>
 
-      {}
       {notification && (
         <Notification
           message={notification.message}
@@ -232,7 +232,6 @@ const Login = () => {
         />
       )}
 
-      {}
       {showEmailVerificationModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
           <div className="bg-white dark:bg-[#1a1a1a] p-8 rounded-lg shadow-xl max-w-sm w-full text-center">
@@ -247,14 +246,14 @@ const Login = () => {
               onClick={handleResendVerification}
               disabled={resendCooldown}
               className={`
-                  font-bold py-2 px-4 rounded-md shadow-md
-                  transition duration-200 ease-in-out
-                  ${
-                    resendCooldown
-                      ? "bg-gray-400 cursor-not-allowed"
-                      : "bg-[var(--color-button-primary)] hover:bg-[var(--color-button-primary-hover)] text-white"
-                  }
-                `}
+                font-bold py-2 px-4 rounded-md shadow-md
+                transition duration-200 ease-in-out
+                ${
+                  resendCooldown
+                    ? "bg-gray-400 cursor-not-allowed"
+                    : "bg-[var(--color-button-primary)] hover:bg-[var(--color-button-primary-hover)] text-white"
+                }
+              `}
             >
               {resendCooldown ? `Resend in ${resendCountdown}s` : "Resend Verification Email"}
             </button>
