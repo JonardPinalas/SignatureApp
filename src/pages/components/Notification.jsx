@@ -2,27 +2,47 @@ import React, { useEffect, useState } from "react";
 
 const Notification = ({ message, type, onClose, duration = 3000 }) => {
   const [isVisible, setIsVisible] = useState(false);
+  const [shouldRender, setShouldRender] = useState(false); // New state to control rendering after animation
 
-  // Set visibility to true when message is provided
+  // Effect for showing the notification
   useEffect(() => {
     if (message) {
-      setIsVisible(true);
+      setShouldRender(true); // Start rendering
+      const showTimer = setTimeout(() => {
+        setIsVisible(true); // Trigger fade-in/slide-down
+      }, 50); // Small delay to allow element to be in DOM before transition starts
+
       // Automatically hide after 'duration' milliseconds
-      const timer = setTimeout(() => {
-        setIsVisible(false);
+      const hideTimer = setTimeout(() => {
+        setIsVisible(false); // Trigger fade-out/slide-up
+      }, duration + 50); // Add a small buffer to the duration
+
+      return () => {
+        clearTimeout(showTimer);
+        clearTimeout(hideTimer);
+      }; // Clean up timers
+    } else {
+      setIsVisible(false);
+      setShouldRender(false);
+    }
+  }, [message, duration]);
+
+  // Effect for unmounting after hide animation completes
+  useEffect(() => {
+    if (!isVisible && shouldRender) {
+      const unmountTimer = setTimeout(() => {
+        setShouldRender(false); // Stop rendering after animation
         if (onClose) {
           onClose(); // Call the parent's onClose handler
         }
-      }, duration);
+      }, 300); // This duration should match your CSS transition duration
 
-      return () => clearTimeout(timer); // Clean up the timer
-    } else {
-      setIsVisible(false);
+      return () => clearTimeout(unmountTimer);
     }
-  }, [message, duration, onClose]);
+  }, [isVisible, shouldRender, onClose]);
 
-  if (!isVisible || !message) {
-    return null; // Don't render if not visible or no message
+  if (!shouldRender) {
+    return null; // Don't render if shouldRender is false
   }
 
   // Determine styling based on message type
@@ -52,13 +72,13 @@ const Notification = ({ message, type, onClose, duration = 3000 }) => {
   return (
     <div
       className={`fixed top-4 left-1/2 -translate-x-1/2 p-4 rounded-lg shadow-lg max-w-sm w-full z-50
-                  flex items-center justify-between border-l-4 transform transition-all duration-300
+                  flex items-center justify-between border-l-4 transform transition-all duration-300 ease-in-out
                   ${bgColorClass} ${textColorClass} ${borderColorClass}
                   ${isVisible ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0"}`}
     >
       <p className="flex-grow text-sm font-medium">{message}</p>
       <button
-        onClick={() => setIsVisible(false)} // Allow manual close
+        onClick={() => setIsVisible(false)} // This will trigger the fade-out animation immediately
         className={`ml-4 p-1 rounded-full ${textColorClass} hover:bg-opacity-75 transition-colors`}
         aria-label="Close notification"
       >

@@ -1,41 +1,147 @@
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import Notification from "./components/Notification";
+import { supabase } from "../utils/supabaseClient";
+
+const RESEND_COOLDOWN_SECONDS = 120;
 
 const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [notification, setNotification] = useState(null); // <--- New state for notification
+  const [notification, setNotification] = useState(null);
+  const [showEmailVerificationModal, setShowEmailVerificationModal] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(false); // New state for cooldown
+  const [resendCountdown, setResendCountdown] = useState(0); // New state for countdown
 
-  const handleSubmit = (e) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Effect to check for 'check_email' message from registration redirect
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get("message") === "check_email") {
+      setNotification({
+        message: "Registration successful! Please check your email to verify your account.",
+        type: "success",
+      });
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location, navigate]);
+
+  // Effect for managing resend email cooldown
+  useEffect(() => {
+    let timer;
+    const storedLastResend = localStorage.getItem("lastResendAttempt");
+
+    if (storedLastResend) {
+      const lastAttemptTime = parseInt(storedLastResend, 10);
+      const timeElapsed = Math.floor((Date.now() - lastAttemptTime) / 1000);
+      const timeLeft = RESEND_COOLDOWN_SECONDS - timeElapsed;
+
+      if (timeLeft > 0) {
+        setResendCooldown(true);
+        setResendCountdown(timeLeft);
+        timer = setInterval(() => {
+          setResendCountdown((prev) => {
+            if (prev <= 1) {
+              clearInterval(timer);
+              setResendCooldown(false);
+              localStorage.removeItem("lastResendAttempt"); // Clear when cooldown ends
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      }
+    }
+
+    return () => clearInterval(timer); // Cleanup timer on unmount
+  }, []); // Run only once on mount to check for stored cooldown
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setNotification(null); // Clear any existing notification
+    setNotification(null);
+    setShowEmailVerificationModal(false);
 
     if (!email || !password) {
-      setNotification({ message: "Please enter both email and password.", type: "error" }); // <--- Use Notification
+      setNotification({ message: "Please enter both email and password.", type: "error" });
       return;
     }
 
-    console.log("Login attempt:", { email, password });
-    // Simulate successful login
-    setNotification({ message: "Login successful!", type: "success" }); // <--- Use Notification
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    // In a real app, you would then redirect here after a brief moment
-    // For example, using React Router's useNavigate hook:
-    // const navigate = useNavigate();
-    // setTimeout(() => navigate('/dashboard'), 1500); // Redirect after notification shows
+      if (error) {
+        if (error.message === "Email not confirmed") {
+          setShowEmailVerificationModal(true);
+        } else {
+          setNotification({ message: error.message, type: "error" });
+        }
+        return;
+      }
+
+      setNotification({ message: "Login successful!", type: "success" });
+      setTimeout(() => navigate("/Signature/Dashboard"), 1000);
+    } catch (err) {
+      setNotification({ message: "An unexpected error occurred.", type: "error" });
+      console.error("Login error:", err);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (resendCooldown) return; // Prevent multiple clicks during cooldown
+
+    setNotification(null);
+    setResendCooldown(true);
+    setResendCountdown(RESEND_COOLDOWN_SECONDS);
+    localStorage.setItem("lastResendAttempt", Date.now().toString()); // Store current time
+
+    let countdownTimer = setInterval(() => {
+      setResendCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(countdownTimer);
+          setResendCooldown(false);
+          localStorage.removeItem("lastResendAttempt"); // Clear when cooldown ends
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: email,
+      options: {
+        emailRedirectTo: `${window.location.origin}/verify-email-success`,
+      },
+    });
+
+    if (error) {
+      setNotification({
+        message: `Failed to resend verification email: ${error.message}`,
+        type: "error",
+      });
+      // If resend failed for an unexpected reason, consider clearing cooldown
+      // or setting it to a shorter duration based on error type.
+      // For now, we'll let the countdown continue as planned.
+    } else {
+      setNotification({
+        message: "Verification email sent! Please check your inbox.",
+        type: "success",
+      });
+      setShowEmailVerificationModal(false); // Close the modal
+    }
   };
 
   return (
     <div className="min-h-screen flex flex-col justify-center items-center px-4 py-8">
       <div className="w-full max-w-md bg-white dark:bg-[#1a1a1a] p-8 rounded-lg shadow-xl animate-fade-in-up">
-        {/* SignSeal Text as a Link to Landing Page */}
         <div className="text-center mb-8">
           <Link to="/" className="inline-block no-underline">
-            <h1
-              className="text-4xl font-extrabold text-gray-800 dark:text-white
-                           hover:text-gray-600 dark:hover:text-gray-300 transition duration-200 ease-in-out"
-            >
+            <h1 className="text-4xl font-extrabold text-gray-800 dark:text-white hover:text-gray-600 dark:hover:text-gray-300 transition duration-200 ease-in-out">
               Login to <span className="text-[var(--color-button-primary)]">SignSeal</span>
             </h1>
           </Link>
@@ -102,22 +208,60 @@ const Login = () => {
 
         <p className="text-center text-gray-600 dark:text-gray-400 mt-6">
           Don't have an account?{" "}
-          <a
-            href="/SignatureApp/register"
+          <Link
+            to="/SignatureApp/register"
             className="text-[var(--color-button-primary)] hover:text-[var(--color-text-accent-light)] font-semibold transition duration-200"
           >
             Register here
-          </a>
+          </Link>
         </p>
       </div>
 
-      {/* Render the Notification component */}
+      {/* Standard Notification Component */}
       {notification && (
         <Notification
           message={notification.message}
           type={notification.type}
-          onClose={() => setNotification(null)} // Clear notification state when it closes
+          onClose={() => setNotification(null)}
         />
+      )}
+
+      {/* Email Verification Modal */}
+      {showEmailVerificationModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+          <div className="bg-white dark:bg-[#1a1a1a] p-8 rounded-lg shadow-xl max-w-sm w-full text-center">
+            <h3 className="text-2xl font-bold mb-4 text-gray-800 dark:text-white">
+              Email Verification Needed
+            </h3>
+            <p className="text-gray-700 dark:text-gray-300 mb-6">
+              To ensure the security of your account, please verify your email address. Kindly check
+              your inbox and click the verification link we've sent.
+            </p>
+            <button
+              onClick={handleResendVerification}
+              disabled={resendCooldown} // Disable button when cooldown is active
+              className={`
+                    font-bold py-2 px-4 rounded-md shadow-md
+                    transition duration-200 ease-in-out
+                    ${
+                      resendCooldown
+                        ? "bg-gray-400 cursor-not-allowed" // Greyed out when disabled
+                        : "bg-[var(--color-button-primary)] hover:bg-[var(--color-button-primary-hover)] text-white"
+                    }
+                `}
+            >
+              {resendCooldown ? `Resend in ${resendCountdown}s` : "Resend Verification Email"}
+            </button>
+            <button
+              onClick={() => setShowEmailVerificationModal(false)}
+              className="ml-4 bg-gray-300 hover:bg-gray-400 dark:bg-gray-700 dark:hover:bg-gray-600
+                         text-gray-800 dark:text-white font-bold py-2 px-4 rounded-md shadow-md
+                         transition duration-200 ease-in-out"
+            >
+              Close
+            </button>
+          </div>
+        </div>
       )}
 
       <style jsx>{`

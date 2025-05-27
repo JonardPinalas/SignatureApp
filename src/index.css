@@ -1,5 +1,6 @@
 @import "tailwindcss";
 
+/* Global Root Variables and Base Styles */
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
@@ -7,12 +8,19 @@
 
   color-scheme: light dark;
 
-  background-color: #ffffff;
-  color: #213547;
+  /* Light Mode Colors */
+  --brand-bg-light: #f0f8ff; /* Very light blue/off-white */
+  --brand-bg-dark: #e0eeff; /* Slightly darker blue for gradients */
+  --brand-text: #334155; /* Slate-700 equivalent */
+  --brand-text-light: #64748b; /* Slate-500 equivalent */
+  --brand-heading: #1e293b; /* Slate-800 equivalent */
+  --brand-card: #ffffff; /* White for cards */
+  --brand-border: #e2e8f0; /* Light border for cards */
 
-  --color-button-primary: #646cff;
-  --color-button-primary-hover: #535bf2;
-  --color-text-accent-light: #747bff;
+  /* User-defined primary button/accent colors (Orange for light mode) */
+  --color-button-primary: #ff8c00; /* Vibrant Orange */
+  --color-button-primary-hover: #e67a00; /* Darker Orange for hover */
+  --color-text-accent-light: #ffb040; /* Lighter Orange for accents */
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -20,19 +28,72 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    background-color: #242424;
-    color: rgba(255, 255, 255, 0.87);
-
-    --color-button-primary: #f97316;
-    --color-button-primary-hover: #c2410c;
-    --color-text-accent-light: #fdba74;
-  }
-}
-
+/* Default Light Mode Background and Text Colors */
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  background-color: var(--brand-bg-light); /* Use brand background */
+  color: var(--brand-text); /* Use brand text color */
+}
+
+/* Dark Mode Overrides */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Dark Mode Colors */
+    --brand-bg-light: #1a202c; /* Darker background for dark mode */
+    --brand-bg-dark: #2d3748;
+    --brand-text: #e2e8f0;
+    --brand-text-light: #a0aec0;
+    --brand-heading: #f7fafc;
+    --brand-card: #1f2937; /* Dark card background */
+    --brand-border: #4a5568;
+
+    /* User-defined primary button/accent colors (Orange for dark mode) */
+    --color-button-primary: #f97316; /* Your specified orange */
+    --color-button-primary-hover: #c2410c; /* Your specified darker orange */
+    --color-text-accent-light: #fdba74; /* Your specified lighter orange */
+  }
+}
+
+/* Animations */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-in-up {
+  animation: fade-in-up 0.6s ease-out forwards;
+}
+.delay-200 {
+  animation-delay: 0.2s;
+}
+.delay-400 {
+  animation-delay: 0.4s;
+}
+
+@keyframes blob {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}
+.animate-blob {
+  animation: blob 7s infinite cubic-bezier(0.6, 0.4, 0.4, 0.8);
+}
+.animation-delay-2000 {
+  animation-delay: 2s;
 }
