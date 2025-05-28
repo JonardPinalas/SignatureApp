@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../utils/supabaseClient"; // Adjust path as needed
 import { useNavigate } from "react-router-dom";
 import Notification from "../components/Notification"; // Assuming you have this component
+import ChallengeModal from "../components/ChallengeModal";
 
 const SignatureRequestsListPage = () => {
   const [signatureRequests, setSignatureRequests] = useState([]);
@@ -18,6 +19,10 @@ const SignatureRequestsListPage = () => {
   const [totalRequestsCount, setTotalRequestsCount] = useState(0); // Total count of filtered requests
 
   const navigate = useNavigate();
+
+  // NEW STATES FOR CHALLENGE MODAL
+  const [showChallengeModal, setShowChallengeModal] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null); // Stores the action to be performed after challenge
 
   /**
    * Fetches user meta information (IP, user agent, location) from Cloudflare APIs.
@@ -265,19 +270,68 @@ const SignatureRequestsListPage = () => {
   };
 
   /**
-   * Handles actions (sign, reject, cancel) on a signature request.
-   * Displays a custom confirmation dialog, updates the request status in Supabase,
-   * logs the action in audit_logs, and then re-fetches the data.
+   * Initiates a sensitive action (sign, reject, cancel) by first checking for MFA.
+   * If MFA is enabled, it triggers the ChallengeModal.
    * @param {string} id - The ID of the signature request.
    * @param {string} documentId - The ID of the associated document.
    * @param {string} documentVersionId - The ID of the associated document version.
    * @param {string} actionType - The type of action ('sign', 'reject', 'cancel').
    */
-  const handleAction = async (id, documentId, documentVersionId, actionType) => {
+  const initiateProtectedAction = async (id, documentId, documentVersionId, actionType) => {
     if (!currentUser) {
       setNotification({ message: "User not authenticated.", type: "error" });
       return;
     }
+
+    setLoading(true); // Indicate loading while checking MFA
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser(); // Get the latest user session
+      if (!user) {
+        setNotification({ message: "User session not found.", type: "error" });
+        setLoading(false);
+        return;
+      }
+
+      const { data, error } = await supabase.auth.mfa.listFactors();
+      if (error) throw error;
+
+      const hasVerifiedTotp = data.totp?.some((f) => f.status === "verified");
+
+      // Define which actions require MFA. For this example, 'sign' and 'cancel' will require MFA.
+      const actionsRequiringMFA = ["sign", "cancel"];
+
+      if (actionsRequiringMFA.includes(actionType) && hasVerifiedTotp) {
+        // Store the action details to be performed after successful MFA
+        setPendingAction({ id, documentId, documentVersionId, actionType });
+        setShowChallengeModal(true); // Show the challenge modal
+      } else {
+        // No MFA required or enabled, proceed directly with the action
+        await performAction(id, documentId, documentVersionId, actionType);
+      }
+    } catch (err) {
+      console.error("Error during MFA check for protected action:", err);
+      setNotification({
+        message: `Failed to initiate action due to MFA check: ${err.message || "Unknown error"}`,
+        type: "error",
+      });
+    } finally {
+      setLoading(false); // Set loading to false after MFA check, action will manage its own loading
+    }
+  };
+
+  /**
+   * Performs the actual action (sign, reject, cancel) on a signature request
+   * after MFA challenge (if applicable) or direct initiation.
+   * @param {string} id - The ID of the signature request.
+   * @param {string} documentId - The ID of the associated document.
+   * @param {string} documentVersionId - The ID of the associated document version.
+   * @param {string} actionType - The type of action ('sign', 'reject', 'cancel').
+   * @param {Object} [session=null] - The updated session object from MFA challenge (optional).
+   */
+  const performAction = async (id, documentId, documentVersionId, actionType, session = null) => {
+    setLoading(true);
 
     // Custom confirmation dialog (replaces window.confirm)
     const confirmed = await new Promise((resolve) => {
@@ -306,9 +360,10 @@ const SignatureRequestsListPage = () => {
       };
     });
 
-    if (!confirmed) return; // If user cancels the action
-
-    setLoading(true);
+    if (!confirmed) {
+      setLoading(false); // Reset loading if action is cancelled
+      return; // If user cancels the action
+    }
 
     let newStatus = "";
     let timestampField = "";
@@ -410,6 +465,39 @@ const SignatureRequestsListPage = () => {
   };
 
   /**
+   * Handler for when MFA challenge is successfully verified.
+   * It will then call the pending action.
+   * @param {Object} session - The updated session object from Supabase.
+   */
+  const handleChallengeVerified = async (session) => {
+    setShowChallengeModal(false); // Hide the challenge modal
+    // Optionally update current user if session includes new user data
+    // setCurrentUser(session.user); // If your session changes significantly
+
+    if (pendingAction) {
+      // Perform the stored action
+      await performAction(
+        pendingAction.id,
+        pendingAction.documentId,
+        pendingAction.documentVersionId,
+        pendingAction.actionType,
+        session // Pass the new session if needed by performAction
+      );
+      setPendingAction(null); // Clear pending action
+    }
+  };
+
+  /**
+   * Handler for when MFA challenge is cancelled or fails.
+   */
+  const handleChallengeCancelled = () => {
+    setShowChallengeModal(false); // Hide the challenge modal
+    setPendingAction(null); // Clear pending action
+    setNotification({ message: "Action cancelled due to failed verification.", type: "info" });
+    setLoading(false); // Reset loading state
+  };
+
+  /**
    * Handles sending a reminder to a signer (simulated).
    * @param {string} signerEmail - The email of the signer to remind.
    */
@@ -503,115 +591,125 @@ const SignatureRequestsListPage = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {signatureRequests.map((request) => {
-            return (
-              <div key={request.id} className="bg-brand-card p-6 rounded-lg shadow-card border border-brand-border flex flex-col justify-between animate-fade-in-up">
-                <div>
-                  <h3 className="text-xl font-semibold text-brand-heading mb-2">{request.document_title}</h3>
-                  <p className="text-brand-text-light mb-4 text-sm">
-                    {activeTab === "sent" ? (
-                      <>
-                        <span className="font-medium">To:</span> {request.signer_email}
-                      </>
-                    ) : (
-                      <>
-                        <span className="font-medium">From:</span> {request.document_owner_id === currentUser?.id ? "Me" : "Document Owner"}
-                      </>
+          {signatureRequests
+            // Only show requests the user is tied to
+            .filter((request) => {
+              if (!currentUser) return false;
+              if (activeTab === "sent") {
+                return request.document_owner_id === currentUser.id;
+              } else {
+                return request.signer_email === currentUser.email;
+              }
+            })
+            .map((request) => {
+              return (
+                <div key={request.id} className="bg-brand-card p-6 rounded-lg shadow-card border border-brand-border flex flex-col justify-between animate-fade-in-up">
+                  <div>
+                    <h3 className="text-xl font-semibold text-brand-heading mb-2">{request.document_title}</h3>
+                    <p className="text-brand-text-light mb-4 text-sm">
+                      {activeTab === "sent" ? (
+                        <>
+                          <span className="font-medium">To:</span> {request.signer_email}
+                        </>
+                      ) : (
+                        <>
+                          <span className="font-medium">From:</span> {request.document_owner_id === currentUser?.id ? "Me" : "Document Owner"}
+                        </>
+                      )}
+                    </p>
+                    <p className="text-brand-text text-sm">
+                      <span className="font-medium">Date Sent:</span> {new Date(request.requested_at).toLocaleDateString()}
+                    </p>
+                    {request.status === "signed" && request.signed_at && (
+                      <p className="text-brand-text text-sm">
+                        <span className="font-medium">Signed:</span> {new Date(request.signed_at).toLocaleDateString()}
+                      </p>
                     )}
-                  </p>
-                  <p className="text-brand-text text-sm">
-                    <span className="font-medium">Date Sent:</span> {new Date(request.requested_at).toLocaleDateString()}
-                  </p>
-                  {request.status === "signed" && request.signed_at && (
-                    <p className="text-brand-text text-sm">
-                      <span className="font-medium">Signed:</span> {new Date(request.signed_at).toLocaleDateString()}
-                    </p>
-                  )}
-                  {request.status === "declined" && request.declined_at && (
-                    <p className="text-brand-text text-sm">
-                      <span className="font-medium">Declined:</span> {new Date(request.declined_at).toLocaleDateString()}
-                    </p>
-                  )}
-                  {request.status === "cancelled" && request.cancelled_at && (
-                    <p className="text-brand-text text-sm">
-                      <span className="font-medium">Cancelled:</span> {new Date(request.cancelled_at).toLocaleDateString()}
-                    </p>
-                  )}
-                  {request.status === "void" && request.voided_at && (
-                    <p className="text-brand-text text-sm">
-                      <span className="font-medium">Voided:</span> {new Date(request.voided_at).toLocaleDateString()}
-                    </p>
-                  )}
-                </div>
-                <div className="flex flex-col gap-3 mt-4">
-                  <span className={`px-3 py-1 rounded-full text-xs font-semibold self-start ${getStatusClasses(request.status)}`}>
-                    {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
-                    {request.document_version_number > 0 && ` (v${request.document_version_number})`}
-                  </span>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {/* Actions for 'Received' requests */}
-                    {activeTab === "received" && request.status === "pending" && (
-                      <>
-                        <button
-                          onClick={() => handleAction(request.id, request.document_id, request.document_version_id, "sign")}
-                          className="flex-1 px-4 py-2 bg-color-button-primary text-white rounded-md hover:bg-color-button-primary-hover transition-colors duration-200 text-sm z-10 pointer-events-auto cursor-pointer"
-                          disabled={loading}
-                        >
-                          Sign Document
-                        </button>
-                        <button
-                          onClick={() => handleAction(request.id, request.document_id, request.document_version_id, "reject")}
-                          className="flex-1 px-4 py-2 bg-color-error text-white rounded-md hover:bg-color-error-hover transition-colors duration-200 text-sm z-10 pointer-events-auto cursor-pointer"
-                          disabled={loading}
-                        >
-                          Reject
-                        </button>
-                      </>
+                    {request.status === "declined" && request.declined_at && (
+                      <p className="text-brand-text text-sm">
+                        <span className="font-medium">Declined:</span> {new Date(request.declined_at).toLocaleDateString()}
+                      </p>
                     )}
-
-                    {/* Actions for 'Sent' requests */}
-                    {activeTab === "sent" && request.status === "pending" && (
-                      <>
-                        <button
-                          onClick={() => handleRemindSigner(request.signer_email)}
-                          className="flex-1 px-4 py-2 bg-color-secondary text-white rounded-md hover:bg-color-secondary-hover transition-colors duration-200 text-sm cursor-pointer"
-                          disabled={loading}
-                        >
-                          Remind Signer
-                        </button>
-                        <button
-                          onClick={() => handleAction(request.id, request.document_id, request.document_version_id, "cancel")}
-                          className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors duration-200 text-sm cursor-pointer"
-                          disabled={loading}
-                        >
-                          Cancel Request
-                        </button>
-                      </>
+                    {request.status === "cancelled" && request.cancelled_at && (
+                      <p className="text-brand-text text-sm">
+                        <span className="font-medium">Cancelled:</span> {new Date(request.cancelled_at).toLocaleDateString()}
+                      </p>
                     )}
-                    {/* Always show View Signature Request Details button */}
-                    <button
-                      onClick={() => handleViewSignatureRequestDetails(request)}
-                      className="flex-1 px-4 py-2 bg-brand-bg-dark text-brand-text rounded-md hover:bg-brand-border transition-colors duration-200 text-sm cursor-pointer"
-                      disabled={loading}
-                    >
-                      View Details
-                    </button>
-                    {/* Show Download Signed button if signed and signature_data_path exists */}
-                    {request.status === "signed" && request.signature_data_path && (
-                      <a
-                        href={request.signature_data_path}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-1 text-center px-4 py-2 bg-color-success text-white rounded-md hover:bg-color-success-hover transition-colors duration-200 text-sm cursor-pointer"
-                      >
-                        Download Signed
-                      </a>
+                    {request.status === "void" && request.voided_at && (
+                      <p className="text-brand-text text-sm">
+                        <span className="font-medium">Voided:</span> {new Date(request.voided_at).toLocaleDateString()}
+                      </p>
                     )}
                   </div>
+                  <div className="flex flex-col gap-3 mt-4">
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold self-start ${getStatusClasses(request.status)}`}>
+                      {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
+                      {request.document_version_number > 0 && ` (v${request.document_version_number})`}
+                    </span>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {/* Actions for 'Received' requests */}
+                      {activeTab === "received" && request.status === "pending" && (
+                        <>
+                          <button
+                            onClick={() => initiateProtectedAction(request.id, request.document_id, request.document_version_id, "sign")}
+                            className="flex-1 px-4 py-2 bg-color-button-primary text-white rounded-md hover:bg-color-button-primary-hover transition-colors duration-200 text-sm z-10 pointer-events-auto cursor-pointer"
+                            disabled={loading}
+                          >
+                            Sign Document
+                          </button>
+                          <button
+                            onClick={() => initiateProtectedAction(request.id, request.document_id, request.document_version_id, "reject")}
+                            className="flex-1 px-4 py-2 bg-color-error text-white rounded-md hover:bg-color-error-hover transition-colors duration-200 text-sm z-10 pointer-events-auto cursor-pointer"
+                            disabled={loading}
+                          >
+                            Reject
+                          </button>
+                        </>
+                      )}
+
+                      {/* Actions for 'Sent' requests */}
+                      {activeTab === "sent" && request.status === "pending" && (
+                        <>
+                          <button
+                            onClick={() => handleRemindSigner(request.signer_email)}
+                            className="flex-1 px-4 py-2 bg-color-secondary text-white rounded-md hover:bg-color-secondary-hover transition-colors duration-200 text-sm cursor-pointer"
+                            disabled={loading}
+                          >
+                            Remind Signer
+                          </button>
+                          <button
+                            onClick={() => initiateProtectedAction(request.id, request.document_id, request.document_version_id, "cancel")}
+                            className="flex-1 px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors duration-200 text-sm cursor-pointer"
+                            disabled={loading}
+                          >
+                            Cancel Request
+                          </button>
+                        </>
+                      )}
+                      {/* Always show View Signature Request Details button */}
+                      <button
+                        onClick={() => handleViewSignatureRequestDetails(request)}
+                        className="flex-1 px-4 py-2 bg-brand-bg-dark text-brand-text rounded-md hover:bg-brand-border transition-colors duration-200 text-sm cursor-pointer"
+                        disabled={loading}
+                      >
+                        View Details
+                      </button>
+                      {/* Show Download Signed button if signed and signature_data_path exists */}
+                      {request.status === "signed" && request.signature_data_path && (
+                        <a
+                          href={request.signature_data_path}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 text-center px-4 py-2 bg-color-success text-white rounded-md hover:bg-color-success-hover transition-colors duration-200 text-sm cursor-pointer"
+                        >
+                          Download Signed
+                        </a>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
         </div>
       )}
 
@@ -637,6 +735,14 @@ const SignatureRequestsListPage = () => {
           </button>
         </div>
       )}
+
+      {/* Challenge Modal */}
+      <ChallengeModal
+        show={showChallengeModal}
+        onClose={handleChallengeCancelled} // If user closes the challenge modal, cancel the action
+        onVerified={handleChallengeVerified} // If successfully verified, proceed with the action
+        requiredFactors={["totp"]} // Specify which factors are required for this challenge
+      />
     </div>
   );
 };

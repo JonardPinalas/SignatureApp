@@ -34,6 +34,7 @@ const ManageAuditLogsPage = () => {
    * Helper function to format timestamps without date-fns.
    */
   const formatTimestamp = (isoString) => {
+    if (!isoString) return "N/A";
     const date = new Date(isoString);
     const options = {
       month: "short", // e.g., "May"
@@ -71,7 +72,10 @@ const ManageAuditLogsPage = () => {
     } = await supabase.auth.getUser();
 
     if (userError || !user) {
-      setNotification({ message: userError?.message || "User not authenticated.", type: "error" });
+      setNotification({
+        message: userError?.message || "User not authenticated.",
+        type: "error",
+      });
       setLoading(false);
       return;
     }
@@ -89,16 +93,16 @@ const ManageAuditLogsPage = () => {
           event_type,
           details,
           ip_address,
+          user_agent, 
           document_id,
           document_version_id,
           signature_request_id,
-          users (full_name),
-          documents (title),
-          document_versions (version_number, file_name)
+          user:users!fk_audit_logs_user_id(full_name),
+          documents(title),
+          document_versions(version_number, file_name)
         `,
         { count: "exact" }
       );
-
       // Apply filters
       if (filterEventType !== "all") {
         query = query.eq("event_type", filterEventType);
@@ -157,21 +161,26 @@ const ManageAuditLogsPage = () => {
   useEffect(() => {
     const fetchFilterOptions = async () => {
       // Fetch distinct users who have logged events
-      const { data: usersData, error: usersError } = await supabase
-        .from("audit_logs")
-        .select("user_id, user_email, users!audit_logs_user_id_fkey(full_name)")
-        .not("user_id", "is", null) // Only get logs with a user_id
-        .distinct("user_id")
-        .order("user_email", { ascending: true }); // Order for consistent display
+      const { data: usersData, error: usersError } = await supabase.from("audit_logs").select("user_id, user_email, users!fk_audit_logs_user_id(full_name)"); // Corrected FKEY reference
 
       if (usersError) {
         console.error("Error fetching distinct users for filter:", usersError);
       } else {
-        const uniqueUsers = usersData.map((log) => ({
-          id: log.user_id,
-          email: log.user_email,
-          fullName: log.users?.full_name || log.user_email, // Fallback to email if full_name is null
-        }));
+        // Filter out null user_ids if desired, and ensure uniqueness
+        const uniqueUsers = Array.from(
+          new Map(
+            usersData
+              .filter((log) => log.user_id !== null) // Filter out system events without a user_id if desired
+              .map((log) => [
+                log.user_id,
+                {
+                  id: log.user_id,
+                  email: log.user_email,
+                  fullName: log.user?.full_name || log.user_email, // Access 'user' relation
+                },
+              ])
+          ).values()
+        );
         setUsersList(uniqueUsers);
       }
 
@@ -208,59 +217,28 @@ const ManageAuditLogsPage = () => {
   };
 
   /**
-   * Enhances readability of the 'details' JSON object.
+   * Enhances readability of the 'details' JSON object by stringifying with formatting.
    * @param {object | string} details - The details field from the audit log.
-   * @returns {string} - A human-readable string representation of the details.
+   * @returns {string} - A human-readable JSON string or original string representation.
    */
   const getDetailsDisplay = (details) => {
     if (!details) return "N/A";
 
+    // Try to parse if it's a string, otherwise use as is
     let parsedDetails;
     try {
       parsedDetails = typeof details === "string" ? JSON.parse(details) : details;
     } catch (e) {
+      // If parsing fails, return the original string
       return String(details);
     }
 
-    if (typeof parsedDetails !== "object" || parsedDetails === null) {
-      return String(parsedDetails);
+    // If it's an object, stringify with 2-space indentation for readability
+    if (typeof parsedDetails === "object" && parsedDetails !== null) {
+      return JSON.stringify(parsedDetails, null, 2);
     }
 
-    const parts = [];
-
-    if (parsedDetails.status) {
-      parts.push(`Status: ${String(parsedDetails.status).toUpperCase()}`);
-    }
-    if (parsedDetails.reason) {
-      parts.push(`Reason: ${parsedDetails.reason}`);
-    }
-    if (parsedDetails.changes) {
-      parts.push(`Changes: ${JSON.stringify(parsedDetails.changes)}`);
-    }
-
-    if (parsedDetails.location && typeof parsedDetails.location === "object") {
-      const loc = parsedDetails.location;
-      let locationParts = [];
-      if (loc.city) locationParts.push(loc.city);
-      if (loc.region && loc.city !== loc.region) locationParts.push(loc.region);
-      if (loc.country) locationParts.push(loc.country);
-      if (locationParts.length > 0) {
-        parts.push(`Location: ${locationParts.join(", ")}`);
-      }
-    }
-
-    if (parsedDetails.userAgent) {
-      parts.push(`User Agent: ${parsedDetails.userAgent}`); // Full user agent for modal
-    }
-
-    for (const key in parsedDetails) {
-      if (Object.prototype.hasOwnProperty.call(parsedDetails, key) && !["status", "reason", "changes", "location", "userAgent"].includes(key)) {
-        const value = parsedDetails[key];
-        parts.push(`${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`);
-      }
-    }
-
-    return parts.length > 0 ? parts.join("\n") : JSON.stringify(parsedDetails, null, 2);
+    return String(parsedDetails); // Fallback for non-object, non-string details
   };
 
   // Function to prepare and show the details modal
@@ -272,7 +250,13 @@ const ManageAuditLogsPage = () => {
   // Function to prepare and show the document modal
   const handleShowDocumentDetails = (log) => {
     let docContent = "No related document information available.";
-    if (log.documents?.title || log.document_id || log.document_versions?.version_number || log.signature_request_id) {
+    if (
+      log.documents?.title ||
+      log.document_id ||
+      log.document_versions?.version_number ||
+      log.document_versions?.file_name || // Added file_name here
+      log.signature_request_id
+    ) {
       docContent = `
             ${log.documents?.title ? `Document Title: ${log.documents.title}\n` : ""}
             ${log.document_id ? `Document ID: ${log.document_id}\n` : ""}
@@ -403,6 +387,7 @@ const ManageAuditLogsPage = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-brand-text-light uppercase tracking-wider">Event Type</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-brand-text-light uppercase tracking-wider">Related Document</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-brand-text-light uppercase tracking-wider">IP Address</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-brand-text-light uppercase tracking-wider">User Agent</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-brand-text-light uppercase tracking-wider">Details</th>
                 </tr>
               </thead>
@@ -410,7 +395,7 @@ const ManageAuditLogsPage = () => {
                 {auditLogs.map((log) => (
                   <tr key={log.id} className="hover:bg-brand-bg-dark transition-colors duration-150">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-brand-text">{formatTimestamp(log.timestamp)}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-brand-text">{log.users?.full_name || log.user_email || "System"}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-brand-text">{log.user?.full_name || log.user_email || "System"}</td> {/* Corrected access to `log.user.full_name` */}
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-button-primary">{log.event_type.replace(/_/g, " ").toUpperCase()}</td>
                     {/* Related Document Button */}
                     <td className="px-6 py-4 text-sm text-brand-text">
@@ -426,6 +411,10 @@ const ManageAuditLogsPage = () => {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-brand-text">{log.ip_address || "N/A"}</td>
+                    {/* ADDED User Agent Cell */}
+                    <td className="px-6 py-4 text-sm text-brand-text overflow-hidden text-ellipsis max-w-xs" title={log.user_agent}>
+                      {log.user_agent ? `${log.user_agent.substring(0, 50)}...` : "N/A"} {/* Truncate for table view */}
+                    </td>
                     {/* Details Button */}
                     <td className="px-6 py-4 text-sm text-brand-text">
                       {log.details ? (
@@ -473,28 +462,7 @@ const ManageAuditLogsPage = () => {
       {/* Details Modal */}
       <Modal show={showDetailsModal} onClose={() => setShowDetailsModal(false)}>
         <h2 className="text-xl font-semibold mb-4 text-brand-heading">Audit Log Details</h2>
-        <div className="flex flex-wrap gap-2 bg-brand-bg-dark p-4 rounded-md">
-          {(() => {
-            let parsed;
-            try {
-              parsed = typeof modalDetailsContent === "string" ? JSON.parse(modalDetailsContent) : modalDetailsContent;
-            } catch {
-              parsed = null;
-            }
-            if (parsed && typeof parsed === "object") {
-              return Object.entries(parsed).map(([key, value]) => (
-                <button
-                  key={key}
-                  className="px-3 py-1 bg-color-button-secondary text-white rounded-md text-xs hover:bg-color-button-secondary-hover transition-colors duration-200"
-                  title={typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)}
-                >
-                  {key}
-                </button>
-              ));
-            }
-            return <pre className="whitespace-pre-wrap text-brand-text-light text-sm">{modalDetailsContent}</pre>;
-          })()}
-        </div>
+        <pre className="whitespace-pre-wrap text-brand-text-light text-sm bg-brand-bg-dark p-4 rounded-md">{modalDetailsContent}</pre>
       </Modal>
 
       {/* Related Document Modal */}
