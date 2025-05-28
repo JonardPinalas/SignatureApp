@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { supabase } from "../../utils/supabaseClient";
+import { supabase } from "../../utils/supabaseClient"; // Assuming this path is correct for your Supabase client
 import Notification from "../components/Notification";
 import DocumentViewer from "../components/DocumentViewer";
-import Modal from "../components/Modal"; // Assuming you have a Modal component
+import Modal from "../components/Modal";
 
-// Helper function to validate and parse multiple emails
+// Helper function to parse and validate emails
 const parseAndValidateEmails = (input) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  // Split by comma, semicolon, or newline, then trim whitespace
+
   const emails = input
     .split(/[,;\n]/)
     .map((email) => email.trim())
@@ -16,7 +16,7 @@ const parseAndValidateEmails = (input) => {
 
   const validEmails = [];
   const invalidEmails = [];
-  const seenEmails = new Set(); // To store unique emails
+  const seenEmails = new Set();
 
   emails.forEach((email) => {
     if (emailRegex.test(email)) {
@@ -31,7 +31,6 @@ const parseAndValidateEmails = (input) => {
 
   return { validEmails, invalidEmails };
 };
-
 const DocumentDetailsPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -56,22 +55,45 @@ const DocumentDetailsPage = () => {
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditLoading, setAuditLoading] = useState(false);
 
-  // --- MODIFIED STATE FOR MULTIPLE RECIPIENTS ---
   const [showSignRequestModal, setShowSignRequestModal] = useState(false);
-  const [signerEmailsInput, setSignerEmailsInput] = useState(""); // Holds the raw input string
+  const [signerEmailsInput, setSignerEmailsInput] = useState("");
 
   const [activeTab, setActiveTab] = useState("requests");
-  // New state for selected version in signature requests pane
+
   const [selectedVersionForSignatures, setSelectedVersionForSignatures] = useState("");
 
-  // State for Report an Issue Modal
   const [showIssueModal, setShowIssueModal] = useState(false);
   const [issueDescription, setIssueDescription] = useState("");
   const [issueContactEmail, setIssueContactEmail] = useState("");
 
-  // --- Data Fetching ---
+  const fetchAuditLogsWithSignee = async (signatureRequestId) => {
+    const { data, error } = await supabase
+      .from("audit_logs")
+      .select(
+        `
+        *,
+        signature_request:signature_request_id (
+          signer_email,
+          signer:signer_id (
+            full_name,
+            title,
+            department
+          )
+        )
+      `
+      )
+      .eq("signature_request_id", signatureRequestId)
+      .order("timestamp", { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+    return data || [];
+  };
+  // Function to fetch all document-related data
   const fetchAllDocumentData = async () => {
     setLoading(true);
+    // Fetch current user
     const {
       data: { user: currentUser },
       error: userError,
@@ -87,7 +109,7 @@ const DocumentDetailsPage = () => {
       return;
     }
     setUser(currentUser);
-    setIssueContactEmail(currentUser.email || ""); // Pre-fill contact email
+    setIssueContactEmail(currentUser.email || "");
 
     // Fetch document details
     const { data: docData, error: docError } = await supabase
@@ -101,7 +123,7 @@ const DocumentDetailsPage = () => {
         `
       )
       .eq("id", id)
-      .eq("owner_id", currentUser.id) // Ensure only owner can view
+      .eq("owner_id", currentUser.id)
       .single();
 
     if (docError) {
@@ -144,7 +166,8 @@ const DocumentDetailsPage = () => {
       });
     } else {
       setVersions(versionsData);
-      // Set initial selected version for signatures to the latest one
+
+      // Set initial selected version for signatures tab
       if (docData.current_document_version_id) {
         setSelectedVersionForSignatures(docData.current_document_version_id);
       } else if (versionsData.length > 0) {
@@ -152,15 +175,15 @@ const DocumentDetailsPage = () => {
       }
     }
 
-    // Fetch signature requests for the document
+    // Fetch signature requests (with signer info)
     const { data: signRequestsData, error: signRequestsError } = await supabase
       .from("signature_requests")
       .select(
         `
         id, document_version_id, signer_email, status, requested_at, signed_at,
         declined_at, cancelled_at, signing_url,
-        signer:signer_id (full_name)
-      `
+        signer:signer_id (full_name, title, department)
+        `
       )
       .eq("document_id", id)
       .order("requested_at", { ascending: true });
@@ -178,10 +201,12 @@ const DocumentDetailsPage = () => {
     setLoading(false);
   };
 
+  // Effect to fetch data on component mount or ID change
   useEffect(() => {
     fetchAllDocumentData();
   }, [id, navigate]);
 
+  // Handler for downloading files
   const handleDownload = async (filePath, fileName) => {
     if (typeof window === "undefined" || typeof window.document === "undefined") {
       console.error("Download attempted outside the browser environment.");
@@ -213,6 +238,7 @@ const DocumentDetailsPage = () => {
     }
   };
 
+  // Handler for saving document details (title, description)
   const handleSaveDocumentDetails = async () => {
     setLoading(true);
     const { error } = await supabase
@@ -238,6 +264,7 @@ const DocumentDetailsPage = () => {
     setLoading(false);
   };
 
+  // Handler for uploading a new document version
   const handleNewVersionUpload = async (e) => {
     e.preventDefault();
 
@@ -254,25 +281,22 @@ const DocumentDetailsPage = () => {
     setShowUploadModal(false);
 
     const newVersionNumber = (doc.latest_version_number || 0) + 1;
+    // Sanitize file name to be URL-friendly and prevent issues
     const sanitizedFileName = newVersionFile.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
     const filePath = `${user.id}/${doc.id}/version_${newVersionNumber}_${sanitizedFileName}`;
 
     try {
       console.log("--- Starting New Version Upload ---");
       console.log("Document ID:", doc.id);
-      console.log(
-        "Current Document Version ID (before new upload):",
-        doc.current_document_version_id
-      );
+      console.log("Current Document Version ID (before new upload):", doc.current_document_version_id);
       console.log("New Version Number:", newVersionNumber);
       console.log("File Name:", newVersionFile.name);
 
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from("documents")
-        .upload(filePath, newVersionFile, {
-          cacheControl: "3600",
-          upsert: false,
-        });
+      // 1. Upload the new file to Supabase Storage
+      const { data: uploadData, error: uploadError } = await supabase.storage.from("documents").upload(filePath, newVersionFile, {
+        cacheControl: "3600",
+        upsert: false, // Do not overwrite existing files
+      });
 
       if (uploadError) {
         console.error("Supabase Storage Upload Error:", uploadError);
@@ -281,9 +305,7 @@ const DocumentDetailsPage = () => {
 
       console.log("File uploaded to storage successfully:", uploadData.path);
 
-      // --- VOID PREVIOUS SIGNATURE REQUESTS ---
-      let updatedRequests = [];
-
+      // 2. Void previous pending signature requests for the old version
       if (doc.current_document_version_id) {
         console.log("Attempting to void previous signature requests...");
         const voidedAtTimestamp = new Date().toISOString();
@@ -295,12 +317,10 @@ const DocumentDetailsPage = () => {
               status: "void",
               voided_at: voidedAtTimestamp,
             },
-            { returning: "representation" }
-          ) // ensures .select() works
+            { returning: "representation" } // Return updated rows
+          )
           .eq("document_id", doc.id)
-          .eq("document_version_id", doc.current_document_version_id);
-
-        updatedRequests = data || [];
+          .eq("document_version_id", doc.current_document_version_id); // Only void requests for the *previous* version
 
         if (updateRequestsError) {
           console.error("Error voiding previous signature requests:", updateRequestsError);
@@ -309,11 +329,7 @@ const DocumentDetailsPage = () => {
             type: "warning",
           });
         } else {
-          console.log(
-            "Previous signature requests update result:",
-            updatedRequests.length,
-            "requests updated to 'void'."
-          );
+          console.log("Previous signature requests update result:", data?.length, "requests updated to 'void'.");
           setNotification({
             message: `Previous signature requests voided.`,
             type: "info",
@@ -323,7 +339,7 @@ const DocumentDetailsPage = () => {
         console.log("No previous document_version_id found. Skipping voiding of old requests.");
       }
 
-      // --- INSERT NEW DOCUMENT VERSION ---
+      // 3. Insert new document version record
       const { data: versionData, error: versionError } = await supabase
         .from("document_versions")
         .insert([
@@ -332,11 +348,11 @@ const DocumentDetailsPage = () => {
             version_number: newVersionNumber,
             file_path: uploadData.path,
             file_name: newVersionFile.name,
-            file_type: newVersionFile.type || "application/octet-stream",
+            file_type: newVersionFile.type || "application/octet-stream", // Fallback type
             file_size: newVersionFile.size,
             created_by_user_id: user.id,
             description_of_changes: newVersionDescription,
-            is_signed_version: false,
+            is_signed_version: false, // New version is not signed yet
           },
         ])
         .select()
@@ -344,13 +360,14 @@ const DocumentDetailsPage = () => {
 
       if (versionError) {
         console.error("Document Version Insert Error:", versionError);
+        // If version insert fails, try to remove the uploaded file to clean up
         await supabase.storage.from("documents").remove([uploadData.path]);
         throw versionError;
       }
 
       console.log("New document version inserted:", versionData);
 
-      // --- UPDATE DOCUMENT RECORD ---
+      // 4. Update the main document record to reflect the new latest version
       const { error: docUpdateError } = await supabase
         .from("documents")
         .update({
@@ -360,10 +377,7 @@ const DocumentDetailsPage = () => {
         .eq("id", doc.id);
 
       if (docUpdateError) {
-        console.error(
-          "Critical error: Failed to update document's current version:",
-          docUpdateError
-        );
+        console.error("Critical error: Failed to update document's current version:", docUpdateError);
         setNotification({
           message: `Document updated, but link to new version failed. Please contact support.`,
           type: "error",
@@ -376,13 +390,13 @@ const DocumentDetailsPage = () => {
         console.log("Document successfully updated to new current version.");
       }
 
+      // Reset form fields and re-fetch all data to refresh UI
       setNewVersionFile(null);
       setNewVersionDescription("");
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
-
-      await fetchAllDocumentData();
+      await fetchAllDocumentData(); // Re-fetch all data to ensure UI is consistent
     } catch (error) {
       console.error("Overall New Version Upload Process Failed:", error);
       setNotification({ message: `Upload failed: ${error.message}`, type: "error" });
@@ -392,7 +406,7 @@ const DocumentDetailsPage = () => {
     }
   };
 
-  // --- MODIFIED handleSendForSignature FUNCTION ---
+  // Handler for sending signature requests
   const handleSendForSignature = async (e) => {
     e.preventDefault();
 
@@ -420,34 +434,35 @@ const DocumentDetailsPage = () => {
     const successfulRequests = [];
     const failedRequests = [];
 
-    // Prepare all insert promises
     const requestPromises = validEmails.map(async (email) => {
       try {
+        // Generate a unique ID for the signature request
         const signatureRequestId = crypto.randomUUID();
-        // Use /user/sign/ as per your AppRoutes.jsx for authenticated signing link
+
+        // Construct the signing URL. This URL will be used by the signer.
+        // In a real application, this URL would point to your dedicated signing page.
         const signingUrl = `${window.location.origin}/user/sign/${signatureRequestId}`;
 
-        // Important: Add a check for existing requests to the same email for the current document version
-        // This prevents duplicate requests if a user tries to send to the same email again for the *same version*.
+        // Check if a pending request already exists for this document version and signer
         const { data: existingRequests, error: existingReqError } = await supabase
           .from("signature_requests")
           .select("id")
           .eq("document_id", doc.id)
           .eq("document_version_id", doc.current_document_version_id)
           .eq("signer_email", email)
-          .maybeSingle(); // Use maybeSingle to get null if not found
+          .maybeSingle(); // Use maybeSingle to get null if no row found, or single row if one exists
 
         if (existingReqError) {
           throw existingReqError;
         }
 
         if (existingRequests) {
-          // If a request already exists for this signer and version, treat it as a success for this loop,
-          // but inform the user it was already sent.
+          // If a request already exists, mark it as such and skip insertion
           successfulRequests.push({ email, status: "already_sent" });
           return;
         }
 
+        // Insert the new signature request into the database
         const { data: signatureRequest, error: signRequestError } = await supabase
           .from("signature_requests")
           .insert([
@@ -462,22 +477,24 @@ const DocumentDetailsPage = () => {
             },
           ])
           .select()
-          .single();
+          .single(); // Select the newly inserted row
 
         if (signRequestError) {
           throw signRequestError;
         }
 
+        // Log the signature request event in audit_logs
         await supabase.from("audit_logs").insert({
-          user_id: user.id,
+          user_id: user.id, // The user who sent the request
           user_email: user.email,
           event_type: "SIGNATURE_REQUEST_SENT",
           document_id: doc.id,
           document_version_id: doc.current_document_version_id,
+          signature_request_id: signatureRequest.id, // Link to the specific signature request
           details: {
             signer_email: email,
-            signature_request_id: signatureRequest.id,
             signing_url: signingUrl,
+            // Additional details about the request initiation can be added here
           },
         });
 
@@ -488,25 +505,15 @@ const DocumentDetailsPage = () => {
       }
     });
 
-    // Wait for all promises to settle (resolve or reject)
+    // Wait for all requests to settle (complete or fail)
     await Promise.allSettled(requestPromises);
 
-    // Update document status if at least one request was successfully initiated
-    if (
-      successfulRequests.length > 0 &&
-      doc.status !== "pending_signature" &&
-      doc.status !== "signed"
-    ) {
-      const { error: docStatusUpdateError } = await supabase
-        .from("documents")
-        .update({ status: "pending_signature" })
-        .eq("id", doc.id);
+    // Update document status if requests were successful and status isn't already signed
+    if (successfulRequests.length > 0 && doc.status !== "pending_signature" && doc.status !== "signed") {
+      const { error: docStatusUpdateError } = await supabase.from("documents").update({ status: "pending_signature" }).eq("id", doc.id);
 
       if (docStatusUpdateError) {
-        console.error(
-          "Failed to update document status after signature request:",
-          docStatusUpdateError
-        );
+        console.error("Failed to update document status after signature request:", docStatusUpdateError);
         setNotification({
           message: `Some signature requests sent, but document status update failed. Please check document status manually.`,
           type: "warning",
@@ -516,15 +523,13 @@ const DocumentDetailsPage = () => {
       }
     }
 
-    // Construct a comprehensive notification
+    // Construct notification message based on outcomes
     let notificationMessage = "";
     let notificationType = "success";
 
     if (successfulRequests.length > 0) {
       const sentCount = successfulRequests.filter((req) => req.status !== "already_sent").length;
-      const alreadySentCount = successfulRequests.filter(
-        (req) => req.status === "already_sent"
-      ).length;
+      const alreadySentCount = successfulRequests.filter((req) => req.status === "already_sent").length;
       notificationMessage += `${sentCount} signature request(s) sent successfully.`;
       if (alreadySentCount > 0) {
         notificationMessage += ` (${alreadySentCount} request(s) were already pending for the current version.)`;
@@ -550,25 +555,23 @@ const DocumentDetailsPage = () => {
       setNotification({ message: "No valid emails provided.", type: "error" });
     }
 
-    setSignerEmailsInput(""); // Clear the input field
-    await fetchAllDocumentData(); // Re-fetch data to show new requests
+    setSignerEmailsInput("");
+    await fetchAllDocumentData(); // Re-fetch all data to ensure UI is consistent
     setLoading(false);
   };
-  // --- END MODIFIED handleSendForSignature FUNCTION ---
 
+  // Handler for cancelling a document
   const handleCancelDocument = async () => {
-    if (!doc || !user) return;
+    if (!doc || !user) return; // Ensure doc and user are loaded
 
-    if (
-      !window.confirm(
-        "Are you sure you want to cancel this document and all pending signature requests? This action cannot be undone."
-      )
-    ) {
+    // Confirmation dialog (using window.confirm as per existing code)
+    if (!window.confirm("Are you sure you want to cancel this document and all pending signature requests? This action cannot be undone.")) {
       return;
     }
 
     setLoading(true);
     try {
+      // Update document status to cancelled
       const { error: docUpdateError } = await supabase
         .from("documents")
         .update({
@@ -581,6 +584,7 @@ const DocumentDetailsPage = () => {
         throw docUpdateError;
       }
 
+      // Update related pending/declined/expired signature requests to cancelled
       const { error: reqUpdateError } = await supabase
         .from("signature_requests")
         .update({
@@ -589,15 +593,14 @@ const DocumentDetailsPage = () => {
           cancelled_by_user_id: user.id,
         })
         .eq("document_id", doc.id)
-        .in("status", ["pending", "declined", "expired"]);
+        .in("status", ["pending", "declined", "expired"]); // Only cancel requests that are not yet signed
 
       if (reqUpdateError) {
-        console.warn(
-          "Could not update all related signature requests to cancelled:",
-          reqUpdateError
-        );
+        console.warn("Could not update all related signature requests to cancelled:", reqUpdateError);
+        // Do not throw error here, as the document itself was cancelled successfully
       }
 
+      // Log the document cancellation event in audit_logs
       await supabase.from("audit_logs").insert({
         user_id: user.id,
         user_email: user.email,
@@ -611,7 +614,7 @@ const DocumentDetailsPage = () => {
         type: "success",
       });
 
-      await fetchAllDocumentData();
+      await fetchAllDocumentData(); // Re-fetch all data to update UI
     } catch (error) {
       console.error("Error cancelling document:", error);
       setNotification({
@@ -623,7 +626,7 @@ const DocumentDetailsPage = () => {
     }
   };
 
-  // --- MODIFIED handleReportIssue FUNCTION ---
+  // Handler for reporting an issue
   const handleReportIssue = async (e) => {
     e.preventDefault();
     if (!issueDescription.trim()) {
@@ -635,15 +638,15 @@ const DocumentDetailsPage = () => {
     setShowIssueModal(false);
 
     try {
+      // Assuming an 'incident_reports' table exists for issue tracking
       const { error } = await supabase.from("incident_reports").insert([
-        // Changed to incident_reports
         {
           document_id: doc.id,
           reported_by_user_id: user.id,
           reported_by_email: issueContactEmail,
-          reason: "User Reported Issue", // Added a default reason
-          details: issueDescription, // Mapped to 'details' column
-          status: "pending", // Default status as per your schema
+          reason: "User Reported Issue",
+          details: issueDescription,
+          status: "pending",
         },
       ]);
 
@@ -655,7 +658,7 @@ const DocumentDetailsPage = () => {
         message: "Your issue has been reported successfully. We will look into it shortly.",
         type: "success",
       });
-      setIssueDescription("");
+      setIssueDescription(""); // Clear form
     } catch (error) {
       console.error("Error reporting issue:", error);
       setNotification({ message: `Failed to report issue: ${error.message}`, type: "error" });
@@ -663,33 +666,26 @@ const DocumentDetailsPage = () => {
       setLoading(false);
     }
   };
-  // --- END MODIFIED handleReportIssue FUNCTION ---
 
-  const filteredSignatureRequests = selectedVersionForSignatures
-    ? signatureRequests.filter((req) => req.document_version_id === selectedVersionForSignatures)
-    : signatureRequests;
+  // Filter signature requests based on selected version
+  const filteredSignatureRequests = selectedVersionForSignatures ? signatureRequests.filter((req) => req.document_version_id === selectedVersionForSignatures) : signatureRequests;
 
-  // --- Render Logic (No major changes here, mainly in the Modal content) ---
+  // Render loading state
   if (loading) {
     return (
       <div className="bg-brand-bg-light min-h-[calc(100vh-var(--navbar-height,0px))] p-10 font-inter text-brand-text flex flex-col items-center justify-center">
-        <h1 className="text-5xl font-extrabold text-brand-heading mb-2 drop-shadow-sm text-center break-words">
-          Document Details
-        </h1>
+        <h1 className="text-5xl font-extrabold text-brand-heading mb-2 drop-shadow-sm text-center break-words">Document Details</h1>
         <p className="text-xl text-brand-text-light text-center">Loading document details...</p>
       </div>
     );
   }
 
+  // Render not found state
   if (!doc) {
     return (
       <div className="bg-brand-bg-light min-h-[calc(100vh-var(--navbar-height,0px))] p-10 font-inter text-brand-text flex flex-col items-center justify-center">
-        <h1 className="text-5xl font-extrabold text-brand-heading mb-2 drop-shadow-sm text-center break-words">
-          Document Not Found
-        </h1>
-        <p className="text-xl text-brand-text-light text-center mb-10">
-          The document you are looking for does not exist or you do not have permission to view it.
-        </p>
+        <h1 className="text-5xl font-extrabold text-brand-heading mb-2 drop-shadow-sm text-center break-words">Document Not Found</h1>
+        <p className="text-xl text-brand-text-light text-center mb-10">The document you are looking for does not exist or you do not have permission to view it.</p>
         <Link
           to="/user/documents"
           className="bg-gray-500 text-white px-6 py-3 rounded-full font-semibold text-lg cursor-pointer transition duration-300 ease-in-out hover:bg-gray-600 hover:translate-y-[-2px]"
@@ -700,14 +696,17 @@ const DocumentDetailsPage = () => {
     );
   }
 
+  // Determine user permissions
   const isDocumentOwner = user && doc.owner_id === user.id;
-  const canModifyDocument =
-    isDocumentOwner && doc.status !== "signed" && doc.status !== "cancelled";
-  const canCancelDocument = isDocumentOwner && doc.status === "pending_signature";
+  const canModifyDocument = isDocumentOwner && doc.status !== "signed" && doc.status !== "cancelled";
+  const canCancelDocument = isDocumentOwner && doc.status === "pending_signature"; // Only allow cancellation if pending
 
+  // Get current file version for preview
   const currentFileVersion = doc.current_document_version;
-  const viewableFileTypes = ["application/pdf", "image/jpeg", "image/png", "image/gif"];
+  // Define viewable file types
+  const viewableFileTypes = ["application/pdf", "image/jpeg", "image/png", "image/gif"]; // Added gif
 
+  // Helper function for status badge styling
   const getStatusBadgeClasses = (status) => {
     switch (status) {
       case "draft":
@@ -718,15 +717,18 @@ const DocumentDetailsPage = () => {
         return "bg-color-success-bg text-color-success-text";
       case "cancelled":
         return "bg-color-error-bg text-color-error-text";
-      case "approved":
+      case "approved": // Assuming these are possible statuses from your system
         return "bg-color-success-bg text-color-success-text";
-      case "rejected":
+      case "rejected": // Assuming these are possible statuses from your system
         return "bg-color-error-bg text-color-error-text";
+      case "void": // For voided signature requests
+        return "bg-gray-400 text-gray-900";
       default:
         return "bg-gray-200 text-gray-800";
     }
   };
 
+  // Helper function to format file size
   const formatFileSize = (bytes) => {
     if (bytes === 0) return "0 Bytes";
     const k = 1024;
@@ -736,362 +738,334 @@ const DocumentDetailsPage = () => {
   };
 
   return (
-    <div className="bg-brand-bg-light min-h-[calc(100vh-var(--navbar-height,0px))] p-6 md:p-10 font-inter text-brand-text flex flex-col items-center">
-      {notification.message && (
-        <Notification message={notification.message} type={notification.type} />
-      )}
+    <div className="bg-brand-bg-light min-h-[calc(100vh-var(--navbar-height,0px))] p-4 md:p-8 font-inter text-brand-text flex flex-col items-center antialiased">
+      {notification.message && <Notification message={notification.message} type={notification.type} />}
 
-      <div className="w-full max-w-5xl">
-        <h1 className="text-4xl md:text-5xl font-extrabold text-brand-heading mb-3 drop-shadow-sm text-center break-words">
-          {doc.title}
-        </h1>
-        <p className="text-lg md:text-xl text-brand-text-light mb-8 text-center">
-          Comprehensive details and management for your document.
-        </p>
-
-        {/* Cancellation Notice */}
+      {/* TOP SECTION: Title, Status, Description, Cancelled Alert */}
+      <div className="w-full max-w-7xl mb-8 px-4 md:px-0">
+        {" "}
+        {/* Added px for smaller screens */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-2">
+          <h1 className="text-3xl md:text-4xl font-extrabold text-brand-heading drop-shadow-sm break-words tracking-tight flex-1">{doc.title}</h1>
+          <span className={`px-4 py-1 rounded-full text-base font-semibold whitespace-nowrap mt-2 md:mt-0 ${getStatusBadgeClasses(doc.status)}`}>{doc.status.replace(/_/g, " ")}</span>
+        </div>
+        <p className="text-base md:text-lg text-brand-text-light mb-6 leading-relaxed">Comprehensive details and management for your document.</p>
         {doc.status === "cancelled" && (
-          <div className="bg-color-error-bg text-color-error-text border-2 border-color-error-border rounded-xl p-4 mb-8 text-center text-lg font-semibold">
+          <div className="bg-color-error-bg text-color-error-text border-2 border-color-error-border rounded-xl p-4 text-center text-lg font-semibold flex items-center justify-center gap-3">
+            <span className="text-2xl">⚠️</span>
             <p>
-              ⚠️ This document has been <strong>cancelled</strong> by the sender and is no longer
-              valid for signing.
+              This document has been <strong>cancelled</strong> by the sender and is no longer valid for signing.
             </p>
           </div>
         )}
+      </div>
 
-        {/* Document Overview & Actions Section */}
-        <div className="bg-brand-card rounded-xl shadow-lg p-6 md:p-8 border border-brand-border mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-            {/* Left: Document Details */}
-            <div>
-              <h2 className="text-2xl md:text-3xl font-bold text-brand-heading mb-4 pb-2 border-b border-brand-border-light">
-                Document Summary
-              </h2>
-              <div className="text-base md:text-lg mb-2 text-brand-text">
-                <strong>Title:</strong>{" "}
-                {isEditing ? (
-                  <input
-                    type="text"
-                    value={editedTitle}
-                    onChange={(e) => setEditedTitle(e.target.value)}
-                    className="p-1 border border-brand-border rounded-md text-base text-brand-text bg-brand-bg-dark-accent w-full"
-                  />
-                ) : (
-                  <span>{doc.title}</span>
-                )}
+      {/* MAIN CONTENT GRID: Document Preview/Summary (Left) and Actions/Tabs (Right) */}
+      <div className="w-full max-w-7xl grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Left Column: Document Preview and Document Summary */}
+        <div className="lg:col-span-7 flex flex-col gap-8 min-w-0">
+          {" "}
+          {/* Added gap-8 for spacing between cards */}
+          <div className="bg-brand-card rounded-xl shadow-lg p-6 md:p-8 border border-brand-border">
+            {" "}
+            {/* Re-added padding */}
+            <h2 className="text-2xl md:text-3xl font-bold text-brand-heading mb-4 pb-2 border-b border-brand-border-light">Document Preview</h2>
+            {currentFileVersion && viewableFileTypes.includes(currentFileVersion.file_type) ? (
+              <div className="rounded-lg overflow-hidden border border-brand-border-light bg-brand-bg-dark-accent h-[500px] lg:h-[600px] flex items-center justify-center">
+                {" "}
+                {/* Increased height for "big" preview */}
+                <DocumentViewer filePath={currentFileVersion.file_path} fileType={currentFileVersion.file_type} />
               </div>
-              <div className="text-base md:text-lg mb-2 text-brand-text flex items-center gap-2">
-                <strong>Status:</strong>{" "}
-                <span
-                  className={`px-3 py-1 rounded-md text-sm font-semibold ${getStatusBadgeClasses(
-                    doc.status
-                  )}`}
-                >
-                  {doc.status.replace(/_/g, " ")}
-                </span>
-              </div>
-              <div className="text-base md:text-lg mb-2 text-brand-text">
-                <strong>Created:</strong> {new Date(doc.created_at).toLocaleDateString()}
-              </div>
-              <div className="text-base md:text-lg mb-2 text-brand-text">
-                <strong>Last Updated:</strong> {new Date(doc.updated_at).toLocaleDateString()}
-              </div>
-              <div className="text-base md:text-lg mb-2 text-brand-text">
-                <strong>Latest Version:</strong> {doc.latest_version_number}
-              </div>
-              <div className="text-base md:text-lg text-brand-text">
-                <strong>Description:</strong>{" "}
-                {isEditing ? (
-                  <textarea
-                    value={editedDescription}
-                    onChange={(e) => setEditedDescription(e.target.value)}
-                    className="p-1 border border-brand-border rounded-md text-base text-brand-text bg-brand-bg-dark-accent w-full h-20 resize-y"
-                    rows="3"
-                  />
-                ) : (
-                  <span>{doc.description || "No description provided."}</span>
-                )}
-              </div>
+            ) : currentFileVersion ? (
+              <p className="italic text-brand-text-light text-center p-5 border border-dashed border-brand-border-light rounded-lg h-[500px] lg:h-[600px] flex items-center justify-center">
+                No preview available for this file type ({currentFileVersion.file_type}). Please download to view.
+              </p>
+            ) : (
+              <p className="italic text-brand-text-light text-center p-5 border border-dashed border-brand-border-light rounded-lg h-[500px] lg:h-[600px] flex items-center justify-center">
+                No current version to preview. Please upload a version.
+              </p>
+            )}
+          </div>
+          {/* Document Summary - now a separate card in the left column */}
+          <div className="bg-brand-card rounded-xl shadow-lg p-6 md:p-8 border border-brand-border">
+            <h2 className="text-2xl md:text-3xl font-bold text-brand-heading mb-4 pb-2 border-b border-brand-border-light">Document Summary</h2>
+            <div className="text-base md:text-lg mb-2 text-brand-text">
+              <strong>Title:</strong>{" "}
+              {isEditing ? (
+                <input
+                  type="text"
+                  value={editedTitle}
+                  onChange={(e) => setEditedTitle(e.target.value)}
+                  className="p-2 border border-brand-border rounded-md text-base text-brand-text bg-brand-bg-dark-accent w-full focus:ring-2 focus:ring-color-button-primary focus:border-transparent transition-all duration-200"
+                />
+              ) : (
+                <span>{doc.title}</span>
+              )}
             </div>
+            {/* Status is moved to the top, so remove it from here */}
+            <div className="text-base md:text-lg mb-2 text-brand-text">
+              <strong>Created:</strong> {new Date(doc.created_at).toLocaleDateString()}
+            </div>
+            <div className="text-base md:text-lg mb-2 text-brand-text">
+              <strong>Last Updated:</strong> {new Date(doc.updated_at).toLocaleDateString()}
+            </div>
+            <div className="text-base md:text-lg mb-2 text-brand-text">
+              <strong>Latest Version:</strong> {doc.latest_version_number}
+            </div>
+            <div className="text-base md:text-lg text-brand-text">
+              <strong>Description:</strong>{" "}
+              {isEditing ? (
+                <textarea
+                  value={editedDescription}
+                  onChange={(e) => setEditedDescription(e.target.value)}
+                  className="p-2 border border-brand-border rounded-md text-base text-brand-text bg-brand-bg-dark-accent w-full h-20 resize-y focus:ring-2 focus:ring-color-button-primary focus:border-transparent transition-all duration-200"
+                  rows="3"
+                ></textarea>
+              ) : (
+                <span>{doc.description || "No description provided."}</span>
+              )}
+            </div>
+          </div>
+        </div>
 
-            {/* Right: Actions */}
-            <div className="md:border-l md:border-brand-border-light md:pl-6 pt-6 md:pt-0">
-              <h2 className="text-2xl md:text-3xl font-bold text-brand-heading mb-4 pb-2 border-b border-brand-border-light">
-                Actions
-              </h2>
-              <div className="flex flex-col gap-4">
-                {canModifyDocument ? (
-                  <>
-                    {isEditing ? (
-                      <>
-                        <button
-                          onClick={handleSaveDocumentDetails}
-                          className="bg-color-success text-white px-6 py-3 rounded-full font-semibold text-lg cursor-pointer transition duration-300 ease-in-out hover:bg-color-success-hover hover:translate-y-[-2px]"
-                        >
-                          Save Details
-                        </button>
-                        <button
-                          onClick={() => setIsEditing(false)}
-                          className="bg-gray-500 text-white px-6 py-3 rounded-full font-semibold text-lg cursor-pointer transition duration-300 ease-in-out hover:bg-gray-600 hover:translate-y-[-2px]"
-                        >
-                          Cancel Edit
-                        </button>
-                      </>
-                    ) : (
+        {/* Right Column: Actions and Tabs */}
+        <div className="lg:col-span-5 flex flex-col gap-8 w-full">
+          {" "}
+          {/* Removed max-w-full, added gap-8 */}
+          {/* Actions */}
+          <div className="bg-brand-card rounded-xl shadow-lg p-6 md:p-8 border border-brand-border">
+            <h2 className="text-2xl md:text-3xl font-bold text-brand-heading mb-4 pb-2 border-b border-brand-border-light">Actions</h2>
+            <div className="flex flex-wrap gap-3">
+              {canModifyDocument ? (
+                <>
+                  {isEditing ? (
+                    <>
                       <button
-                        onClick={() => setIsEditing(true)}
-                        className="bg-color-info text-white px-6 py-3 rounded-full font-semibold text-lg cursor-pointer transition duration-300 ease-in-out hover:bg-color-info-hover hover:translate-y-[-2px]"
+                        onClick={handleSaveDocumentDetails}
+                        className="bg-color-success text-white px-5 py-2 rounded-full font-semibold text-base cursor-pointer transition duration-300 ease-in-out hover:bg-color-success-hover hover:-translate-y-1 shadow-md"
                       >
-                        Edit Details
+                        Save
                       </button>
-                    )}
+                      <button
+                        onClick={() => setIsEditing(false)}
+                        className="bg-gray-500 text-white px-5 py-2 rounded-full font-semibold text-base cursor-pointer transition duration-300 ease-in-out hover:bg-gray-600 hover:-translate-y-1 shadow-md"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
                     <button
-                      onClick={() => setShowUploadModal(true)}
-                      className="bg-color-secondary text-white px-6 py-3 rounded-full font-semibold text-lg cursor-pointer transition duration-300 ease-in-out hover:bg-color-secondary-hover hover:translate-y-[-2px]"
+                      onClick={() => setIsEditing(true)}
+                      className="bg-color-info text-white px-5 py-2 rounded-full font-semibold text-base cursor-pointer transition duration-300 ease-in-out hover:bg-color-info-hover hover:-translate-y-1 shadow-md"
                     >
-                      Upload New Version
+                      Edit Details
                     </button>
-                    <button
-                      onClick={() => setShowSignRequestModal(true)}
-                      className="bg-color-secondary text-white px-6 py-3 rounded-full font-semibold text-lg cursor-pointer transition duration-300 ease-in-out hover:bg-color-secondary-hover hover:translate-y-[-2px]"
-                    >
-                      Send for Signature
-                    </button>
-                  </>
-                ) : (
-                  <p className="text-brand-text-light italic">
-                    Document status ({doc.status.replace(/_/g, " ")}) prevents further
-                    modifications.
-                  </p>
-                )}
-
-                {canCancelDocument && (
+                  )}
                   <button
-                    onClick={handleCancelDocument}
-                    className="bg-color-error text-white px-6 py-3 rounded-full font-semibold text-lg cursor-pointer transition duration-300 ease-in-out hover:bg-color-error-hover hover:translate-y-[-2px]"
+                    onClick={() => setShowUploadModal(true)}
+                    className="bg-color-secondary text-white px-5 py-2 rounded-full font-semibold text-base cursor-pointer transition duration-300 ease-in-out hover:bg-color-secondary-hover hover:-translate-y-1 shadow-md"
                   >
-                    Cancel Document
+                    Upload New Version
                   </button>
-                )}
-
-                {currentFileVersion && (
                   <button
-                    onClick={() =>
-                      handleDownload(currentFileVersion.file_path, currentFileVersion.file_name)
-                    }
-                    className="bg-color-button-primary text-white px-6 py-3 rounded-full font-bold text-lg cursor-pointer transition duration-300 ease-in-out shadow-md hover:bg-color-button-primary-hover hover:translate-y-[-2px]"
+                    onClick={() => setShowSignRequestModal(true)}
+                    className="bg-color-secondary text-white px-5 py-2 rounded-full font-semibold text-base cursor-pointer transition duration-300 ease-in-out hover:bg-color-secondary-hover hover:-translate-y-1 shadow-md"
                   >
-                    Download Current Version
+                    Send for Signature
                   </button>
-                )}
-              </div>
+                </>
+              ) : (
+                <p className="text-brand-text-light italic p-3 bg-brand-bg-dark-accent rounded-md border border-brand-border text-center w-full">
+                  Document status ({doc.status.replace(/_/g, " ")}) prevents further modifications.
+                </p>
+              )}
+
+              {canCancelDocument && (
+                <button
+                  onClick={handleCancelDocument}
+                  className="bg-color-error text-white px-5 py-2 rounded-full font-semibold text-base cursor-pointer transition duration-300 ease-in-out hover:bg-color-error-hover hover:-translate-y-1 shadow-md"
+                >
+                  Cancel Document
+                </button>
+              )}
+
+              {currentFileVersion && (
+                <button
+                  onClick={() => handleDownload(currentFileVersion.file_path, currentFileVersion.file_name)}
+                  className="bg-color-button-primary text-white px-5 py-2 rounded-full font-bold text-base cursor-pointer transition duration-300 ease-in-out shadow-md hover:bg-color-button-primary-hover hover:-translate-y-1"
+                >
+                  Download Current Version
+                </button>
+              )}
             </div>
           </div>
-        </div>
-
-        {/* Document Viewer Section */}
-        <div className="bg-brand-card rounded-xl shadow-lg p-6 md:p-8 border border-brand-border mb-8">
-          <h2 className="text-2xl md:text-3xl font-bold text-brand-heading mb-4 pb-2 border-b border-brand-border-light">
-            Document Preview
-          </h2>
-          {currentFileVersion && viewableFileTypes.includes(currentFileVersion.file_type) ? (
-            <DocumentViewer
-              filePath={currentFileVersion.file_path}
-              fileType={currentFileVersion.file_type}
-            />
-          ) : currentFileVersion ? (
-            <p className="italic text-brand-text-light text-center p-5 border border-dashed border-brand-border-light rounded-lg">
-              No preview available for this file type ({currentFileVersion.file_type}). Please
-              download to view.
-            </p>
-          ) : (
-            <p className="italic text-brand-text-light text-center p-5 border border-dashed border-brand-border-light rounded-lg">
-              No current version to preview. Please upload a version.
-            </p>
-          )}
-        </div>
-
-        {/* Signature Requests and Versions Tabs */}
-        <div className="bg-brand-card rounded-xl shadow-lg p-6 md:p-8 border border-brand-border mb-8">
-          <div className="flex border-b border-brand-border-light mb-6">
-            <button
-              className={`px-4 py-2 text-lg font-semibold ${
-                activeTab === "requests"
-                  ? "border-b-2 border-color-button-primary text-color-button-primary"
-                  : "text-brand-text-light hover:text-brand-heading"
-              }`}
-              onClick={() => setActiveTab("requests")}
-            >
-              Signature Requests
-            </button>
-            <button
-              className={`ml-4 px-4 py-2 text-lg font-semibold ${
-                activeTab === "versions"
-                  ? "border-b-2 border-color-button-primary text-color-button-primary"
-                  : "text-brand-text-light hover:text-brand-heading"
-              }`}
-              onClick={() => setActiveTab("versions")}
-            >
-              Document Versions
-            </button>
-          </div>
-
-          {activeTab === "requests" && (
-            <div>
-              <h3 className="text-xl md:text-2xl font-bold text-brand-heading mb-4">
+          <div className="bg-brand-card rounded-xl shadow-lg p-0 border border-brand-border flex-1 flex flex-col overflow-hidden">
+            <div className="flex border-b border-brand-border-light">
+              <button
+                className={`flex-1 px-4 py-3 text-base font-semibold rounded-t-lg ${
+                  activeTab === "requests" ? "border-b-2 border-color-button-primary text-color-button-primary bg-brand-bg-light" : "text-brand-text-light hover:text-brand-heading"
+                } transition-colors duration-200`}
+                onClick={() => setActiveTab("requests")}
+              >
                 Signature Requests
-              </h3>
-              <div className="mb-4">
-                <label
-                  htmlFor="version-select"
-                  className="block text-brand-text mb-2 text-lg font-medium"
-                >
-                  Select Document Version:
-                </label>
-                <select
-                  id="version-select"
-                  value={selectedVersionForSignatures}
-                  onChange={(e) => setSelectedVersionForSignatures(e.target.value)}
-                  className="w-full md:w-1/2 p-3 border border-brand-border rounded-md bg-brand-bg-dark-accent text-brand-text focus:ring-color-button-primary focus:border-color-button-primary"
-                >
-                  <option value="">All Versions</option>
-                  {versions.map((version) => (
-                    <option key={version.id} value={version.id}>
-                      Version {version.version_number} (
-                      {new Date(version.created_at).toLocaleDateString()})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {filteredSignatureRequests.length === 0 ? (
-                <p className="italic text-brand-text-light text-center p-5 border border-dashed border-brand-border-light rounded-lg">
-                  No signature requests found for the selected version.
-                </p>
-              ) : (
-                <ul className="list-none p-0 m-0">
-                  {filteredSignatureRequests.map((request) => (
-                    <li
-                      key={request.id}
-                      className="bg-brand-bg-dark-accent rounded-lg p-4 mb-3 border border-brand-border last:mb-0 transition-all duration-200 hover:shadow-md"
-                    >
-                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-2 text-brand-heading">
-                        <div className="flex items-center gap-3">
-                          <strong className="text-lg">Signer:</strong>
-                          <span className="text-lg">
-                            {request.signer?.full_name || request.signer_email}
-                          </span>
-                          <span
-                            className={`px-2 py-1 rounded-md text-xs font-semibold ${getStatusBadgeClasses(
-                              request.status
-                            )}`}
-                          >
-                            {request.status.replace(/_/g, " ")}
-                          </span>
-                        </div>
-                        <span className="text-brand-text-light text-sm">
-                          Requested on: {new Date(request.requested_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                      <div className="text-sm text-brand-text-light mb-2">
-                        Version:{" "}
-                        <span className="font-semibold">
-                          {versions.find((v) => v.id === request.document_version_id)
-                            ?.version_number || "N/A"}
-                        </span>
-                      </div>
-                      {request.status === "signed" && request.signed_at && (
-                        <div className="text-sm text-brand-text-light mb-2">
-                          Signed on: {new Date(request.signed_at).toLocaleDateString()}
-                        </div>
-                      )}
-                      {request.status === "declined" && request.declined_at && (
-                        <div className="text-sm text-brand-text-light mb-2">
-                          Declined on: {new Date(request.declined_at).toLocaleDateString()}
-                        </div>
-                      )}
-                      {request.status === "cancelled" && request.cancelled_at && (
-                        <div className="text-sm text-brand-text-light mb-2">
-                          Cancelled on: {new Date(request.cancelled_at).toLocaleDateString()}
-                        </div>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-
-          {activeTab === "versions" && (
-            <div>
-              <h3 className="text-xl md:text-2xl font-bold text-brand-heading mb-4">
+              </button>
+              <button
+                className={`flex-1 px-4 py-3 text-base font-semibold rounded-t-lg ${
+                  activeTab === "versions" ? "border-b-2 border-color-button-primary text-color-button-primary bg-brand-bg-light" : "text-brand-text-light hover:text-brand-heading"
+                } transition-colors duration-200`}
+                onClick={() => setActiveTab("versions")}
+              >
                 Document Versions
-              </h3>
-              {versions.length === 0 ? (
-                <p className="italic text-brand-text-light text-center p-5 border border-dashed border-brand-border-light rounded-lg">
-                  No previous versions of this document exist.
-                </p>
-              ) : (
-                <ul className="list-none p-0 m-0">
-                  {versions.map((version) => (
-                    <li
-                      key={version.id}
-                      className="bg-brand-bg-dark-accent rounded-lg p-4 mb-3 border border-brand-border last:mb-0 transition-all duration-200 hover:shadow-md"
+              </button>
+            </div>
+
+            <div className="p-6 md:p-8 flex-1 flex flex-col">
+              {activeTab === "requests" && (
+                <div className="flex flex-col h-full">
+                  <div className="mb-4">
+                    <label htmlFor="version-select" className="block text-brand-text mb-2 text-base font-medium">
+                      Select Document Version:
+                    </label>
+                    <select
+                      id="version-select"
+                      value={selectedVersionForSignatures}
+                      onChange={(e) => setSelectedVersionForSignatures(e.target.value)}
+                      className="w-full p-2 border border-brand-border rounded-md bg-brand-bg-dark-accent text-brand-text focus:ring-2 focus:ring-color-button-primary focus:border-transparent transition-all duration-200"
                     >
-                      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-2 text-brand-heading">
-                        <strong className="text-lg">Version {version.version_number}</strong>
-                        <span className="text-brand-text-light text-sm">
-                          Uploaded on: {new Date(version.created_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                      <p className="text-base text-brand-text mb-1">
-                        File: {version.file_name} ({formatFileSize(version.file_size)})
-                      </p>
-                      <p className="text-sm text-brand-text-light mb-2">
-                        Changes: {version.description_of_changes || "No description provided."}
-                      </p>
-                      {version.is_signed_version && (
-                        <span className="px-2 py-1 rounded-md text-xs font-semibold bg-color-success-bg text-color-success-text mr-2">
-                          SIGNED VERSION
-                        </span>
-                      )}
-                      <button
-                        onClick={() => handleDownload(version.file_path, version.file_name)}
-                        className="mt-2 bg-color-button-secondary text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-color-button-secondary-hover transition duration-300 ease-in-out"
-                      >
-                        Download Version
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                      <option value="">All Versions</option>
+                      {versions.map((version) => (
+                        <option key={version.id} value={version.id}>
+                          Version {version.version_number} ({new Date(version.created_at).toLocaleDateString()})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {filteredSignatureRequests.length === 0 ? (
+                    <div className="flex-1 flex items-center justify-center">
+                      <p className="italic text-brand-text-light text-center p-5 border border-dashed border-brand-border-light rounded-lg">No signature requests found for the selected version.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-y-auto max-h-[340px] pr-1">
+                      <ul className="list-none p-0 m-0 space-y-3">
+                        {filteredSignatureRequests.map((request) => (
+                          <li key={request.id} className="bg-brand-bg-dark-accent rounded-lg p-4 border border-brand-border transition-all duration-200 hover:shadow-md">
+                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-2 text-brand-heading">
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <strong className="text-base">Signer:</strong>
+                                <span className="text-base">{request.signer?.full_name || request.signer_email}</span>
+                                <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getStatusBadgeClasses(request.status)}`}>{request.status.replace(/_/g, " ")}</span>
+                              </div>
+                              <span className="text-brand-text-light text-xs">Requested: {new Date(request.requested_at).toLocaleDateString()}</span>
+                            </div>
+
+                            <div className="text-xs text-brand-text-light mb-1">
+                              {request.signer ? (
+                                <>
+                                  <div>
+                                    <span className="font-semibold">Full Name:</span> {request.signer.full_name || "N/A"}
+                                  </div>
+                                  <div>
+                                    <span className="font-semibold">Title:</span> {request.signer.title || "N/A"}
+                                  </div>
+                                  <div>
+                                    <span className="font-semibold">Department:</span> {request.signer.department || "N/A"}
+                                  </div>
+                                </>
+                              ) : (
+                                <div>
+                                  <span className="font-semibold">Email:</span> {request.signer_email}
+                                </div>
+                              )}
+                            </div>
+                            <div className="text-xs text-brand-text-light mb-1">
+                              Version: <span className="font-semibold">{versions.find((v) => v.id === request.document_version_id)?.version_number || "N/A"}</span>
+                            </div>
+                            {request.status === "signed" && request.signed_at && <div className="text-xs text-brand-text-light mb-1">Signed: {new Date(request.signed_at).toLocaleDateString()}</div>}
+                            {request.status === "declined" && request.declined_at && (
+                              <div className="text-xs text-brand-text-light mb-1">Declined: {new Date(request.declined_at).toLocaleDateString()}</div>
+                            )}
+                            {request.status === "cancelled" && request.cancelled_at && (
+                              <div className="text-xs text-brand-text-light mb-1">Cancelled: {new Date(request.cancelled_at).toLocaleDateString()}</div>
+                            )}
+                            <button
+                              onClick={async () => {
+                                setSelectedRequest(request);
+                                setShowAuditModal(true);
+                                setAuditLoading(true);
+                                try {
+                                  const logs = await fetchAuditLogsWithSignee(request.id);
+                                  setAuditLogs(logs);
+                                } catch (error) {
+                                  console.error("Error fetching audit logs:", error.message);
+                                  setNotification({ message: `Failed to fetch audit logs: ${error.message}`, type: "error" });
+                                  setAuditLogs([]);
+                                }
+                                setAuditLoading(false);
+                              }}
+                              className="mt-2 bg-color-info text-white px-4 py-2 rounded-full text-xs font-semibold hover:bg-color-info-hover transition duration-300 ease-in-out shadow-sm"
+                            >
+                              See Audit
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === "versions" && (
+                <div className="flex-1 flex flex-col">
+                  {versions.length === 0 ? (
+                    <div className="flex-1 flex items-center justify-center">
+                      <p className="italic text-brand-text-light text-center p-5 border border-dashed border-brand-border-light rounded-lg">No previous versions of this document exist.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-y-auto max-h-[340px] pr-1">
+                      <ul className="list-none p-0 m-0 space-y-3">
+                        {versions.map((version) => (
+                          <li key={version.id} className="bg-brand-bg-dark-accent rounded-lg p-4 border border-brand-border transition-all duration-200 hover:shadow-md">
+                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-2 text-brand-heading">
+                              <strong className="text-base">Version {version.version_number}</strong>
+                              <span className="text-brand-text-light text-xs">Uploaded: {new Date(version.created_at).toLocaleDateString()}</span>
+                            </div>
+                            <p className="text-sm text-brand-text mb-1">
+                              File: {version.file_name} ({formatFileSize(version.file_size)})
+                            </p>
+                            <p className="text-xs text-brand-text-light mb-2">Changes: {version.description_of_changes || "No description provided."}</p>
+                            {version.is_signed_version && <span className="px-2 py-1 rounded-full text-xs font-semibold bg-color-success-bg text-color-success-text mr-2">SIGNED VERSION</span>}
+                            <button
+                              onClick={() => handleDownload(version.file_path, version.file_name)}
+                              className="mt-2 bg-color-button-secondary text-white px-4 py-2 rounded-full text-xs font-semibold hover:bg-color-button-secondary-hover transition duration-300 ease-in-out shadow-sm"
+                            >
+                              Download Version
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
-          )}
-        </div>
-
-        {/* Report an Issue Button */}
-        <div className="text-center mt-10">
-          <button
-            onClick={() => setShowIssueModal(true)}
-            className="bg-gray-700 text-white px-6 py-3 rounded-full font-semibold text-lg cursor-pointer transition duration-300 ease-in-out hover:bg-gray-800 hover:translate-y-[-2px]"
-          >
-            Report an Issue
-          </button>
+          </div>
+          <div className="text-center">
+            <button
+              onClick={() => setShowIssueModal(true)}
+              className="bg-gray-700 text-white px-6 py-3 rounded-full font-semibold text-base cursor-pointer transition duration-300 ease-in-out hover:bg-gray-800 hover:-translate-y-1 shadow-md"
+            >
+              Report an Issue
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Upload New Version Modal */}
-      <Modal
-        show={showUploadModal}
-        onClose={() => setShowUploadModal(false)}
-        title="Upload New Document Version"
-      >
+      {/* Modals (remain outside the main grid for consistent overlay behavior) */}
+      <Modal show={showUploadModal} onClose={() => setShowUploadModal(false)} title="Upload New Document Version">
         <form onSubmit={handleNewVersionUpload} className="space-y-4">
           <div>
-            <label
-              htmlFor="newVersionFile"
-              className="block text-brand-text text-lg font-medium mb-2"
-            >
+            <label htmlFor="newVersionFile" className="block text-brand-text text-base font-medium mb-2">
               Select File:
             </label>
             <input
@@ -1104,10 +1078,7 @@ const DocumentDetailsPage = () => {
             />
           </div>
           <div>
-            <label
-              htmlFor="newVersionDescription"
-              className="block text-brand-text text-lg font-medium mb-2"
-            >
+            <label htmlFor="newVersionDescription" className="block text-brand-text text-base font-medium mb-2">
               Description of Changes (Optional):
             </label>
             <textarea
@@ -1115,7 +1086,7 @@ const DocumentDetailsPage = () => {
               value={newVersionDescription}
               onChange={(e) => setNewVersionDescription(e.target.value)}
               rows="3"
-              className="w-full p-3 border border-brand-border rounded-md bg-brand-bg-dark-accent text-brand-text focus:ring-color-button-primary focus:border-color-button-primary"
+              className="w-full p-3 border border-brand-border rounded-md bg-brand-bg-dark-accent text-brand-text focus:ring-2 focus:ring-color-button-primary focus:border-transparent transition-all duration-200"
               placeholder="e.g., Fixed typos, Added new clause, Minor revisions"
             ></textarea>
           </div>
@@ -1127,33 +1098,21 @@ const DocumentDetailsPage = () => {
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              className="bg-color-button-primary text-white px-6 py-2 rounded-full font-semibold hover:bg-color-button-primary-hover transition duration-300 ease-in-out"
-            >
+            <button type="submit" className="bg-color-button-primary text-white px-6 py-2 rounded-full font-semibold hover:bg-color-button-primary-hover transition duration-300 ease-in-out">
               Upload Version
             </button>
           </div>
         </form>
       </Modal>
 
-      {/* Send for Signature Modal */}
-      <Modal
-        show={showSignRequestModal}
-        onClose={() => setShowSignRequestModal(false)}
-        title="Send Document for Signature"
-      >
+      <Modal show={showSignRequestModal} onClose={() => setShowSignRequestModal(false)} title="Send Document for Signature">
         <form onSubmit={handleSendForSignature} className="space-y-4">
           <p className="text-brand-text-light mb-4">
-            Enter one or more signer email addresses, separated by commas, semicolons, or new lines.
-            A signature request will be sent for the current version of the document (Version{" "}
+            Enter one or more signer email addresses, separated by commas, semicolons, or new lines. A signature request will be sent for the current version of the document (Version{" "}
             {doc?.current_document_version?.version_number || "N/A"}).
           </p>
           <div>
-            <label
-              htmlFor="signerEmails"
-              className="block text-brand-text text-lg font-medium mb-2"
-            >
+            <label htmlFor="signerEmails" className="block text-brand-text text-base font-medium mb-2">
               Signer Email(s):
             </label>
             <textarea
@@ -1161,7 +1120,7 @@ const DocumentDetailsPage = () => {
               value={signerEmailsInput}
               onChange={(e) => setSignerEmailsInput(e.target.value)}
               rows="5"
-              className="w-full p-3 border border-brand-border rounded-md bg-brand-bg-dark-accent text-brand-text focus:ring-color-button-primary focus:border-color-button-primary"
+              className="w-full p-3 border border-brand-border rounded-md bg-brand-bg-dark-accent text-brand-text focus:ring-2 focus:ring-color-button-primary focus:border-transparent transition-all duration-200"
               placeholder="signer1@example.com, signer2@example.com"
               required
             ></textarea>
@@ -1174,28 +1133,18 @@ const DocumentDetailsPage = () => {
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              className="bg-color-button-primary text-white px-6 py-2 rounded-full font-semibold hover:bg-color-button-primary-hover transition duration-300 ease-in-out"
-            >
+            <button type="submit" className="bg-color-button-primary text-white px-6 py-2 rounded-full font-semibold hover:bg-color-button-primary-hover transition duration-300 ease-in-out">
               Send Request(s)
             </button>
           </div>
         </form>
       </Modal>
 
-      {/* Report an Issue Modal */}
       <Modal show={showIssueModal} onClose={() => setShowIssueModal(false)} title="Report an Issue">
         <form onSubmit={handleReportIssue} className="space-y-4">
-          <p className="text-brand-text-light mb-4">
-            Please describe the issue you are experiencing with this document or the platform.
-            Provide as much detail as possible.
-          </p>
+          <p className="text-brand-text-light mb-4">Please describe the issue you are experiencing with this document or the platform. Provide as much detail as possible.</p>
           <div>
-            <label
-              htmlFor="issueDescription"
-              className="block text-brand-text text-lg font-medium mb-2"
-            >
+            <label htmlFor="issueDescription" className="block text-brand-text text-base font-medium mb-2">
               Issue Description:
             </label>
             <textarea
@@ -1203,16 +1152,13 @@ const DocumentDetailsPage = () => {
               value={issueDescription}
               onChange={(e) => setIssueDescription(e.target.value)}
               rows="6"
-              className="w-full p-3 border border-brand-border rounded-md bg-brand-bg-dark-accent text-brand-text focus:ring-color-button-primary focus:border-color-button-primary"
+              className="w-full p-3 border border-brand-border rounded-md bg-brand-bg-dark-accent text-brand-text focus:ring-2 focus:ring-color-button-primary focus:border-transparent transition-all duration-200"
               placeholder="e.g., Document is not rendering correctly, Signature request failed for a signer, Typo in document details"
               required
             ></textarea>
           </div>
           <div>
-            <label
-              htmlFor="issueContactEmail"
-              className="block text-brand-text text-lg font-medium mb-2"
-            >
+            <label htmlFor="issueContactEmail" className="block text-brand-text text-base font-medium mb-2">
               Your Email (for follow-up):
             </label>
             <input
@@ -1220,7 +1166,7 @@ const DocumentDetailsPage = () => {
               id="issueContactEmail"
               value={issueContactEmail}
               onChange={(e) => setIssueContactEmail(e.target.value)}
-              className="w-full p-3 border border-brand-border rounded-md bg-brand-bg-dark-accent text-brand-text focus:ring-color-button-primary focus:border-color-button-primary"
+              className="w-full p-3 border border-brand-border rounded-md bg-brand-bg-dark-accent text-brand-text focus:ring-2 focus:ring-color-button-primary focus:border-transparent transition-all duration-200"
               placeholder="your.email@example.com"
               required
             />
@@ -1233,14 +1179,48 @@ const DocumentDetailsPage = () => {
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              className="bg-color-error text-white px-6 py-2 rounded-full font-semibold hover:bg-color-error-hover transition duration-300 ease-in-out"
-            >
+            <button type="submit" className="bg-color-error text-white px-6 py-2 rounded-full font-semibold hover:bg-color-error-hover transition duration-300 ease-in-out">
               Submit Report
             </button>
           </div>
         </form>
+      </Modal>
+
+      <Modal show={showAuditModal} onClose={() => setShowAuditModal(false)} title="Signature Audit Trail">
+        {auditLoading ? (
+          <div className="text-center py-8 text-brand-text-light">Loading audit logs...</div>
+        ) : (
+          <div>
+            {auditLogs.length === 0 ? (
+              <div className="text-center py-8 text-brand-text-light">No audit logs found for this signature request.</div>
+            ) : (
+              <ul className="divide-y divide-brand-border">
+                {auditLogs.map((log) => (
+                  <li key={log.id} className="py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-brand-heading">{log.event_type.replace(/_/g, " ")}</span>
+                      <span className="text-xs text-brand-text-light">{new Date(log.timestamp).toLocaleString()}</span>
+                    </div>
+                    <div className="text-xs text-brand-text-light mt-1">
+                      {log.details && typeof log.details === "object"
+                        ? Object.entries(log.details).map(([k, v]) => (
+                            <div key={k}>
+                              <span className="font-semibold capitalize">{k.replace(/_/g, " ")}:</span>{" "}
+                              <span>
+                                {/* Special handling for signing_location if it's an object */}
+                                {k === "signing_location" && typeof v === "object" && v !== null ? `Latitude: ${v.latitude}, Longitude: ${v.longitude}` : String(v)}
+                              </span>
+                            </div>
+                          ))
+                        : String(log.details)}{" "}
+                      {/* Fallback for non-object details */}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </Modal>
     </div>
   );

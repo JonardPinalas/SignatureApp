@@ -67,6 +67,32 @@ const NavBar = forwardRef((props, ref) => {
     };
   }, [showSettingsDropdown]);
 
+  // Define role-based nav links
+  const navLinks = {
+    user: [
+      { to: "/user/dashboard", label: "Dashboard" },
+      { to: "/user/documents", label: "My Documents" },
+      { to: "/user/signature-requests", label: "Signatures" },
+    ],
+    admin: [
+      { to: "/admin/dashboard", label: "Admin Dashboard" },
+      { to: "/admin/manage-users", label: "Manage Users" },
+      { to: "/admin/reports", label: "Reports" },
+      { to: "/admin/audit", label: "Audit Logs" },
+      { to: "/admin/anomalies", label: "Reported Anomalies" },
+      { to: "/admin/master-edit", label: "Master Editor" },
+    ],
+    // Add more roles if needed
+  };
+
+  // Choose links based on role
+  let linksToShow = [];
+  if (userRole === "admin") {
+    linksToShow = navLinks.admin;
+  } else if (userRole === "user") {
+    linksToShow = navLinks.user;
+  }
+
   return (
     <nav
       ref={ref}
@@ -75,50 +101,23 @@ const NavBar = forwardRef((props, ref) => {
     >
       {/* Logo */}
       <div className="text-4xl font-extrabold">
-        <Link
-          to={userRole ? `/${userRole}/dashboard` : "/user/dashboard"}
-          className="text-[var(--color-button-primary)] no-underline drop-shadow-sm"
-        >
+        <Link to={userRole ? `/${userRole}/dashboard` : "/user/dashboard"} className="text-[var(--color-button-primary)] no-underline drop-shadow-sm">
           SignSeal
         </Link>
       </div>
 
       {/* Navigation Links */}
       <div className="flex items-center space-x-8">
-        <Link
-          to="/user/dashboard"
-          className="text-[var(--brand-text)] no-underline text-lg font-medium transition-colors duration-300
+        {linksToShow.map((link) => (
+          <Link
+            key={link.to}
+            to={link.to}
+            className="text-[var(--brand-text)] no-underline text-lg font-medium transition-colors duration-300
                          hover:text-[var(--color-text-accent-light)]"
-        >
-          Dashboard
-        </Link>
-        <Link
-          to="/user/documents"
-          className="text-[var(--brand-text)] no-underline text-lg font-medium transition-colors duration-300
-                         hover:text-[var(--color-text-accent-light)]"
-        >
-          My Documents
-        </Link>
-        <Link
-          to="/user/signature-requests"
-          className="text-[var(--brand-text)] no-underline text-lg font-medium transition-colors duration-300
-                         hover:text-[var(--color-text-accent-light)]"
-        >
-          Signatures
-        </Link>
-
-        {/* Admin-specific links */}
-        {userRole === "admin" && (
-          <>
-            <Link
-              to="/admin/dashboard"
-              className="text-[var(--brand-text)] no-underline text-lg font-medium transition-colors duration-300
-                             hover:text-[var(--color-text-accent-light)]"
-            >
-              Admin Dashboard
-            </Link>
-          </>
-        )}
+          >
+            {link.label}
+          </Link>
+        ))}
 
         {/* Settings Dropdown */}
         <div className="relative inline-block settings-dropdown-container">
@@ -129,13 +128,7 @@ const NavBar = forwardRef((props, ref) => {
                        hover:text-[var(--color-text-accent-light)]"
           >
             Settings
-            <span
-              className={`text-xs leading-none transform transition-transform duration-300 ${
-                showSettingsDropdown ? "rotate-180" : "rotate-0"
-              }`}
-            >
-              ▼
-            </span>
+            <span className={`text-xs leading-none transform transition-transform duration-300 ${showSettingsDropdown ? "rotate-180" : "rotate-0"}`}>▼</span>
           </button>
           {showSettingsDropdown && (
             <div
