@@ -4,6 +4,9 @@ import { useNavigate } from "react-router-dom";
 import Notification from "../components/Notification"; // Assuming you have this component
 import ChallengeModal from "../components/ChallengeModal";
 
+// Define your Supabase Storage bucket name
+const STORAGE_BUCKET_NAME = "documents"; // IMPORTANT: Replace with your actual bucket name
+
 const SignatureRequestsListPage = () => {
   const [signatureRequests, setSignatureRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -139,7 +142,7 @@ const SignatureRequestsListPage = () => {
             id,
             title,
             owner_id,
-            original_hash  
+            original_hash
           ),
           document_versions (
             id,
@@ -257,8 +260,9 @@ const SignatureRequestsListPage = () => {
    * @param {string} [timestampField=null] - The timestamp field to update (e.g., 'signed_at').
    * @param {string} [timestampValue=null] - The timestamp value.
    * @param {string} [signedDocumentHash=null] - The signed document hash to update.
+   * @param {string} [signedDocumentPath=null] - The relative path to the signed document.
    */
-  const updateRequestStatusLocally = (id, newStatus, timestampField = null, timestampValue = null, signedDocumentHash = null) => {
+  const updateRequestStatusLocally = (id, newStatus, timestampField = null, timestampValue = null, signedDocumentHash = null, signedDocumentPath = null) => {
     setSignatureRequests((prev) =>
       prev.map((req) =>
         req.id === id
@@ -267,6 +271,7 @@ const SignatureRequestsListPage = () => {
               status: newStatus,
               ...(timestampField && { [timestampField]: timestampValue }),
               ...(signedDocumentHash && { signed_document_hash: signedDocumentHash }), // Update local state with hash
+              ...(signedDocumentPath && { signature_data_path: signedDocumentPath }), // Update local state with path
             }
           : req
       )
@@ -333,7 +338,7 @@ const SignatureRequestsListPage = () => {
    * @param {string} documentId - The ID of the associated document.
    * @param {string} documentVersionId - The ID of the associated document version.
    * @param {string} actionType - The type of action ('sign', 'reject', 'cancel').
-   * @param {string} [originalHash=null] - The original hash of the document (used for 'sign' action).
+   * @param {string} [originalHash=null] - The original hash of the document (used for context, but the hash of the *signed* document will be calculated).
    * @param {Object} [session=null] - The updated session object from MFA challenge (optional).
    */
   const performAction = async (id, documentId, documentVersionId, actionType, originalHash = null, session = null) => {
@@ -376,6 +381,7 @@ const SignatureRequestsListPage = () => {
     let eventType = "";
     let successMessage = "";
     let signedDocumentHashToStore = null; // Variable to hold the hash for storage
+    let signedDocumentPathToStore = null; // Variable to hold the relative path to the signed document
 
     // Determine status, timestamp field, event type, and success message based on action type
     switch (actionType) {
@@ -384,7 +390,30 @@ const SignatureRequestsListPage = () => {
         timestampField = "signed_at";
         eventType = "DOCUMENT_SIGNED";
         successMessage = "Document signed successfully.";
-        signedDocumentHashToStore = originalHash; // Use the passed originalHash
+
+        // Fetch the file_path of the document_version that was sent for signing.
+        // This path will be used for signature_data_path.
+        const { data: documentVersionDetails, error: versionDetailsError } = await supabase.from("document_versions").select("file_path").eq("id", documentVersionId).single();
+
+        if (versionDetailsError) {
+          throw new Error("Could not retrieve document version file path: " + versionDetailsError.message);
+        }
+
+        // Set signature_data_path to the file_path of the document version that was signed.
+        signedDocumentPathToStore = documentVersionDetails.file_path;
+
+        // Set signed_document_hash to the original_hash of the document.
+        // This acts as the audit hash of the content that was signed.
+        signedDocumentHashToStore = originalHash;
+
+        // Update *only* the status of the main document to 'signed'
+        const { error: updateDocStatusError } = await supabase.from("documents").update({ status: "signed" }).eq("id", documentId);
+
+        if (updateDocStatusError) {
+          console.error("Failed to update document status to signed:", updateDocStatusError.message);
+          // Log this error, but proceed as the signature_request update is more critical for this flow.
+        }
+
         break;
       case "reject":
         newStatus = "declined";
@@ -415,19 +444,17 @@ const SignatureRequestsListPage = () => {
 
       // Add specific fields for 'sign' and 'cancel' actions
       if (actionType === "sign") {
-        // Ensure originalHash is available before assigning to signed_document_hash
-        if (!signedDocumentHashToStore) {
-          // This should ideally not happen if original_hash is always fetched/passed correctly.
-          // However, as a fallback or strict check:
-          console.error("Error: Original document hash is missing for signing action.");
-          throw new Error("Original document hash is missing, cannot complete signing.");
+        if (!signedDocumentHashToStore || !signedDocumentPathToStore) {
+          console.error("Error: Signed document hash or path is missing after signing process.");
+          throw new Error("Failed to finalize signing process (missing signed document data).");
         }
 
         Object.assign(updatePayload, {
+          signature_data_path: signedDocumentPathToStore, // Store the relative path to the signed document
           signer_ip_address: userMeta.ip,
           signer_user_agent: userMeta.userAgent,
           signing_location: userMeta.location,
-          signed_document_hash: signedDocumentHashToStore, // Store the hash here
+          signed_document_hash: signedDocumentHashToStore, // Store the hash of the *original* document as the signed hash
         });
       } else if (actionType === "cancel") {
         updatePayload.cancelled_by_user_id = currentUser.id;
@@ -450,13 +477,13 @@ const SignatureRequestsListPage = () => {
       }
 
       // Update local state for immediate UI feedback
-      updateRequestStatusLocally(id, newStatus, timestampField, actionTimestamp, signedDocumentHashToStore); // Pass hash to local update
+      updateRequestStatusLocally(id, newStatus, timestampField, actionTimestamp, signedDocumentHashToStore, signedDocumentPathToStore); // Pass hash and path to local update
       setNotification({ message: successMessage, type: "success" });
 
       // Log the action in the audit_logs table
       await supabase.from("audit_logs").insert({
         user_id: currentUser.id,
-        user_email: currentUser.email,
+        user_email: currentUser.email.toLowerCase(), // Ensure email is lowercase for consistency
         event_type: eventType,
         signature_request_id: id,
         document_id: documentId,
@@ -466,7 +493,7 @@ const SignatureRequestsListPage = () => {
           status: newStatus,
           userAgent: userMeta.userAgent,
           location: userMeta.location,
-          ...(actionType === "sign" && { signed_document_hash: signedDocumentHashToStore }), // Include signed hash in audit
+          ...(actionType === "sign" && { signed_document_hash: signedDocumentHashToStore, signed_document_path: signedDocumentPathToStore }), // Include signed hash and path in audit
           ...(actionType === "cancel" && { cancelled_by_user_id: currentUser.id }),
         },
       });
@@ -716,7 +743,7 @@ const SignatureRequestsListPage = () => {
                       {/* Show Download Signed button if signed and signature_data_path exists */}
                       {request.status === "signed" && request.signature_data_path && (
                         <a
-                          href={request.signature_data_path}
+                          href={supabase.storage.from(STORAGE_BUCKET_NAME).getPublicUrl(request.signature_data_path).data.publicUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="flex-1 text-center px-4 py-2 bg-color-success text-white rounded-md hover:bg-color-success-hover transition-colors duration-200 text-sm cursor-pointer"
