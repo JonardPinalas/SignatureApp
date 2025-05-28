@@ -1,4 +1,3 @@
-// src/components/NavBar.jsx
 import React, { useEffect, useState, forwardRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../../utils/supabaseClient";
@@ -6,7 +5,7 @@ import { supabase } from "../../utils/supabaseClient";
 const NavBar = forwardRef((props, ref) => {
   const [session, setSession] = useState(null);
   const [userRole, setUserRole] = useState(null);
-  const [showSettingsDropdown, setShowSettingsDropdown] = useState(false); // New state for dropdown visibility
+  const [showSettingsDropdown, setShowSettingsDropdown] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -51,12 +50,11 @@ const NavBar = forwardRef((props, ref) => {
     }
   };
 
-  // Toggle dropdown visibility
   const toggleSettingsDropdown = () => {
     setShowSettingsDropdown(!showSettingsDropdown);
   };
 
-  // Close dropdown if clicked outside (optional, but good UX)
+  // Close dropdown if clicked outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (showSettingsDropdown && !event.target.closest(".settings-dropdown-container")) {
@@ -70,53 +68,95 @@ const NavBar = forwardRef((props, ref) => {
   }, [showSettingsDropdown]);
 
   return (
-    <nav style={styles.navbar} ref={ref}>
-      <div style={styles.logoContainer}>
-        <Link to={userRole ? `/${userRole}/dashboard` : "/user/dashboard"} style={styles.logoLink}>
+    <nav
+      ref={ref}
+      className="bg-[var(--brand-bg-light)] shadow-md py-4 px-10 flex justify-between items-center
+                 border-b border-[var(--brand-border)] fixed w-full top-0 left-0 z-50 transition-all duration-300"
+    >
+      {/* Logo */}
+      <div className="text-4xl font-extrabold">
+        <Link
+          to={userRole ? `/${userRole}/dashboard` : "/user/dashboard"}
+          className="text-[var(--color-button-primary)] no-underline drop-shadow-sm"
+        >
           SignSeal
         </Link>
       </div>
-      <div style={styles.linksContainer}>
-        <Link to="/user/dashboard" style={styles.navLink}>
+
+      {/* Navigation Links */}
+      <div className="flex items-center space-x-8">
+        <Link
+          to="/user/dashboard"
+          className="text-[var(--brand-text)] no-underline text-lg font-medium transition-colors duration-300
+                         hover:text-[var(--color-text-accent-light)]"
+        >
           Dashboard
         </Link>
-        {/* Uncomment these links as you implement the corresponding pages. */}
-        {/* <Link to="/report-incident" style={styles.navLink}>Report Incident</Link> */}
-        <Link to="/user/documents" style={styles.navLink}>
+        <Link
+          to="/user/documents"
+          className="text-[var(--brand-text)] no-underline text-lg font-medium transition-colors duration-300
+                         hover:text-[var(--color-text-accent-light)]"
+        >
           My Documents
         </Link>
-        <Link to="/user/signature-requests" style={styles.navLink}>
+        <Link
+          to="/user/signature-requests"
+          className="text-[var(--brand-text)] no-underline text-lg font-medium transition-colors duration-300
+                         hover:text-[var(--color-text-accent-light)]"
+        >
           Signatures
         </Link>
 
         {/* Admin-specific links */}
         {userRole === "admin" && (
           <>
-            <Link to="/admin/dashboard" style={styles.navLink}>
+            <Link
+              to="/admin/dashboard"
+              className="text-[var(--brand-text)] no-underline text-lg font-medium transition-colors duration-300
+                             hover:text-[var(--color-text-accent-light)]"
+            >
               Admin Dashboard
             </Link>
-            {/* Uncomment as you implement these pages */}
-            {/* <Link to="/admin/users" style={styles.navLink}>User Management</Link> */}
-            {/* <Link to="/admin/audit-logs" style={styles.navLink}>Audit Logs</Link> */}
           </>
         )}
 
         {/* Settings Dropdown */}
-        <div style={styles.settingsContainer} className="settings-dropdown-container">
-          <button onClick={toggleSettingsDropdown} style={styles.settingsButton}>
+        <div className="relative inline-block settings-dropdown-container">
+          <button
+            onClick={toggleSettingsDropdown}
+            className="bg-transparent border-none text-[var(--brand-text)] text-lg font-medium cursor-pointer
+                       flex items-center gap-1 transition-colors duration-300 focus:outline-none
+                       hover:text-[var(--color-text-accent-light)]"
+          >
             Settings
-            <span style={styles.dropdownArrow}>{showSettingsDropdown ? "▲" : "▼"}</span>
+            <span
+              className={`text-xs leading-none transform transition-transform duration-300 ${
+                showSettingsDropdown ? "rotate-180" : "rotate-0"
+              }`}
+            >
+              ▼
+            </span>
           </button>
           {showSettingsDropdown && (
-            <div style={styles.dropdownMenu}>
+            <div
+              className="absolute top-full right-0 bg-[var(--brand-card)] shadow-lg rounded-lg
+                         min-w-[160px] flex flex-col overflow-hidden mt-3 z-50
+                         border border-[var(--brand-border-light)] animate-fade-in-up origin-top-right"
+            >
               <Link
-                to="/my-profile" // Assuming you'll uncomment this route later
-                style={styles.dropdownItem}
-                onClick={() => setShowSettingsDropdown(false)} // Close dropdown on click
+                to="/user/profile"
+                className="py-3 px-5 text-[var(--brand-text)] no-underline text-base font-normal
+                           transition-all duration-200 hover:bg-[var(--color-button-primary)] hover:text-white"
+                onClick={() => setShowSettingsDropdown(false)}
               >
                 Profile
               </Link>
-              <button onClick={handleLogout} style={styles.dropdownItemButton}>
+              <button
+                onClick={handleLogout}
+                className="py-3 px-5 text-[var(--brand-text)] no-underline text-base font-normal
+                           transition-all duration-200 hover:bg-[var(--color-button-primary)] hover:text-white
+                           border-none bg-transparent w-full text-left"
+              >
                 Logout
               </button>
             </div>
@@ -126,122 +166,5 @@ const NavBar = forwardRef((props, ref) => {
     </nav>
   );
 });
-
-// Define your styles to match the Landing page's aesthetic
-const styles = {
-  navbar: {
-    backgroundColor: "var(--brand-bg-light)",
-    boxShadow: "0 2px 8px rgba(0, 0, 0, 0.08)",
-    padding: "16px 40px",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    borderBottom: "1px solid var(--brand-border)",
-    position: "fixed",
-    width: "100%",
-    top: 0,
-    left: 0,
-    zIndex: 1000,
-  },
-  logoContainer: {
-    fontSize: "2em",
-    fontWeight: "800",
-  },
-  logoLink: {
-    color: "var(--color-button-primary)",
-    textDecoration: "none",
-  },
-  linksContainer: {
-    display: "flex",
-    alignItems: "center",
-    gap: "30px",
-  },
-  navLink: {
-    color: "var(--brand-text)",
-    textDecoration: "none",
-    fontSize: "1.05em",
-    fontWeight: "500",
-    transition: "color 0.3s ease-in-out",
-  },
-  // New styles for settings dropdown
-  settingsContainer: {
-    position: "relative", // Essential for positioning the dropdown menu
-    display: "inline-block",
-  },
-  settingsButton: {
-    backgroundColor: "transparent",
-    color: "var(--brand-text)", // Match other nav links
-    border: "none",
-    padding: "0", // No padding, let dropdown item handle it
-    fontSize: "1.05em",
-    fontWeight: "500",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    gap: "5px", // Space between "Settings" text and arrow
-    transition: "color 0.3s ease-in-out",
-    // Hover effect (requires direct manipulation or CSS)
-    "&:hover": {
-      color: "var(--color-button-primary)", // Example hover color
-    },
-  },
-  dropdownArrow: {
-    fontSize: "0.7em", // Smaller arrow
-    lineHeight: "1",
-    transform: "translateY(1px)", // Slight adjustment for vertical alignment
-  },
-  dropdownMenu: {
-    position: "absolute",
-    top: "100%", // Position right below the button
-    right: "0", // Align to the right of the button
-    backgroundColor: "var(--brand-bg-light)", // Same background as navbar
-    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)", // More prominent shadow for dropdown
-    borderRadius: "8px",
-    minWidth: "150px",
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden", // Ensures rounded corners apply to content
-    marginTop: "10px", // Space between button and dropdown
-    zIndex: 1001, // Ensure dropdown is above other content
-    border: "1px solid var(--brand-border)", // Light border
-  },
-  dropdownItem: {
-    padding: "12px 20px",
-    color: "var(--brand-text)",
-    textDecoration: "none",
-    fontSize: "1em",
-    fontWeight: "400",
-    transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out",
-    cursor: "pointer",
-    textAlign: "left",
-    borderBottom: "1px solid #eee", // Separator between items
-    "&:last-child": {
-      borderBottom: "none", // No border for the last item
-    },
-    // Hover effect for dropdown items
-    "&:hover": {
-      backgroundColor: "var(--color-button-primary)", // Background on hover
-      color: "white", // Text color on hover
-    },
-  },
-  dropdownItemButton: {
-    padding: "12px 20px",
-    color: "var(--brand-text)",
-    textDecoration: "none",
-    fontSize: "1em",
-    fontWeight: "400",
-    transition: "background-color 0.2s ease-in-out, color 0.2s ease-in-out",
-    cursor: "pointer",
-    textAlign: "left",
-    border: "none", // Remove default button border
-    backgroundColor: "transparent", // Make button background transparent by default
-    width: "100%", // Make button take full width of dropdown
-    // Hover effect for dropdown items
-    "&:hover": {
-      backgroundColor: "var(--color-button-primary)",
-      color: "white",
-    },
-  },
-};
 
 export default NavBar;

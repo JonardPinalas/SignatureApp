@@ -328,7 +328,7 @@ const SignatureRequestsListPage = () => {
       }
     } finally {
       setLoading(false);
-      getSessionAndFetchRequests(); // Re-fetch to update UI based on new state/filters
+      getSessionAndFetchRequests();
     }
   };
 
@@ -378,7 +378,7 @@ const SignatureRequestsListPage = () => {
       }
     } finally {
       setLoading(false);
-      getSessionAndFetchRequests(); // Re-fetch to update UI based on new state/filters
+      getSessionAndFetchRequests(); // Re-fetch all requests to ensure UI is fully updated
     }
   };
 

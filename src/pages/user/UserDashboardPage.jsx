@@ -7,16 +7,16 @@ const UserDashboardPage = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState(null);
   const [userRole, setUserRole] = useState(null);
-  const [ownedDocuments, setOwnedDocuments] = useState([]);
-  const [pendingSignatures, setPendingSignatures] = useState([]);
-  const [completedSignatures, setCompletedSignatures] = useState([]);
+  const [ownedDocuments, setOwnedDocuments] = useState({ length: 0 });
+  const [pendingSignatures, setPendingSignatures] = useState({ length: 0 });
+  const [completedSignatures, setCompletedSignatures] = useState({ length: 0 });
   const [notification, setNotification] = useState({ message: "", type: "" });
 
-  // State to manage hover effects for cards (since inline styles don't support :hover)
-  const [hoveredCard, setHoveredCard] = useState(null); // Stores the ID of the hovered card
-  const [hoveredLink, setHoveredLink] = useState(null); // Stores the ID of the hovered link
-  const [hoveredActionButton, setHoveredActionButton] = useState(null); // Stores the ID of the hovered action button
+  // No longer needed with Tailwind hover variants
+  // const [hoveredCard, setHoveredCard] = useState(null);
+  // const [hoveredActionButton, setHoveredActionButton] = useState(null);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -37,6 +37,7 @@ const UserDashboardPage = () => {
         return;
       }
       setUser(user);
+      setCurrentUserEmail(user.email);
 
       const { data: userProfile, error: profileError } = await supabase
         .from("users")
@@ -56,59 +57,40 @@ const UserDashboardPage = () => {
         }
       }
 
-      const { data: ownedDocs, error: ownedDocsError } = await supabase
+      const { count: ownedDocsCount, error: ownedDocsError } = await supabase
         .from("documents")
-        .select("id, title, status, updated_at")
-        .eq("owner_id", user.id)
-        .order("updated_at", { ascending: false });
+        .select("id", { count: "exact", head: true })
+        .eq("owner_id", user.id);
 
       if (ownedDocsError) {
-        console.error("Error fetching owned documents:", ownedDocsError);
-        setNotification({ message: "Error loading your documents.", type: "error" });
+        console.error("Error fetching owned documents count:", ownedDocsError);
+        setNotification({ message: "Error loading your documents count.", type: "error" });
       }
-      setOwnedDocuments(ownedDocs || []);
+      setOwnedDocuments({ length: ownedDocsCount || 0 });
 
-      const { data: pendingReqs, error: pendingReqsError } = await supabase
+      const { count: pendingReqsCount, error: pendingReqsError } = await supabase
         .from("signature_requests")
-        .select(
-          `
-          id,
-          status,
-          requested_at,
-          document_version_id,
-          document:document_id (id, title, owner_id)
-        `
-        )
-        .eq("signer_id", user.id)
-        .eq("status", "pending")
-        .order("requested_at", { ascending: false });
+        .select("id", { count: "exact", head: true })
+        .eq("signer_email", user.email)
+        .eq("status", "pending");
 
       if (pendingReqsError) {
-        console.error("Error fetching pending signatures:", pendingReqsError);
-        setNotification({ message: "Error loading pending signatures.", type: "error" });
+        console.error("Error fetching pending signatures count:", pendingReqsError);
+        setNotification({ message: "Error loading pending signatures count.", type: "error" });
       }
-      setPendingSignatures(pendingReqs || []);
+      setPendingSignatures({ length: pendingReqsCount || 0 });
 
-      const { data: completedReqs, error: completedReqsError } = await supabase
+      const { count: completedReqsCount, error: completedReqsError } = await supabase
         .from("signature_requests")
-        .select(
-          `
-          id,
-          status,
-          signed_at,
-          document_version_id,
-          document:document_id (id, title, owner_id)
-        `
-        )
-        .eq("signer_id", user.id)
-        .eq("status", "signed")
-        .order("signed_at", { ascending: false });
+        .select("id", { count: "exact", head: true })
+        .eq("signer_email", user.email)
+        .eq("status", "signed");
 
       if (completedReqsError) {
-        console.error("Error fetching completed signatures:", completedReqsError);
-        setNotification({ message: "Error loading completed signatures.", type: "error" });
+        console.error("Error fetching completed signatures count:", completedReqsError);
+        setNotification({ message: "Error loading completed signatures count.", type: "error" });
       }
-      setCompletedSignatures(completedReqs || []);
+      setCompletedSignatures({ length: completedReqsCount || 0 });
 
       setLoading(false);
       if (
@@ -124,410 +106,186 @@ const UserDashboardPage = () => {
     };
 
     fetchDashboardData();
-  }, [navigate]);
-
-  const renderDocumentItem = (doc, type) => {
-    const title = doc.title || doc.document?.title || "Untitled Document";
-    let date = "";
-    let linkPath = "";
-    let statusText = "";
-    const itemId = `${type}-${doc.id}`; // Unique ID for this list item's link
-
-    if (type === "owned") {
-      date = new Date(doc.updated_at).toLocaleDateString();
-      linkPath = `/user/documents/${doc.id}`;
-      statusText = `(${doc.status})`;
-    } else if (type === "pending") {
-      date = new Date(doc.requested_at).toLocaleDateString();
-      linkPath = `/user/sign-document/${doc.id}`;
-      statusText = `(Requested: ${date})`;
-    } else if (type === "completed") {
-      date = new Date(doc.signed_at).toLocaleDateString();
-      linkPath = `/user/documents/${doc.document?.id}`;
-      statusText = `(Signed: ${date})`;
-    }
-
-    return (
-      <li key={doc.id} style={dashboardStyles.listItem}>
-        <Link
-          to={linkPath}
-          style={{
-            ...dashboardStyles.listItemLink,
-            ...(hoveredLink === itemId && dashboardStyles.listItemLinkHover),
-          }}
-          onMouseEnter={() => setHoveredLink(itemId)}
-          onMouseLeave={() => setHoveredLink(null)}
-        >
-          <span style={dashboardStyles.listItemTitle}>{title}</span>{" "}
-          <span style={dashboardStyles.listItemStatus}>{statusText}</span>
-        </Link>
-      </li>
-    );
-  };
+  }, [navigate, currentUserEmail]);
 
   return (
-    <div style={dashboardStyles.pageContainer}>
+    <div
+      className="min-h-screen flex flex-col items-center p-4 transition-colors duration-300 font-inter"
+      style={{
+        backgroundColor: "var(--brand-bg-light)",
+        backgroundImage: "linear-gradient(135deg, var(--brand-bg-light), var(--brand-bg-dark))",
+        color: "var(--brand-text)",
+      }}
+    >
       {notification.message && (
         <Notification message={notification.message} type={notification.type} />
       )}
 
-      <h1 style={dashboardStyles.heading}>
-        Welcome, {user?.user_metadata?.full_name || user?.email || "User"}!
-      </h1>
-      <p style={dashboardStyles.subheading}>
-        Your central hub for document management and signatures.
-      </p>
+      {/* Hero Section */}
+      <div
+        className="w-full bg-gradient-to-br from-[var(--color-primary-dark)] to-[var(--color-secondary)] text-[var(--color-text-white)] py-24 md:py-32 text-center mb-16 shadow-xl rounded-b-3xl flex flex-col items-center justify-center relative overflow-hidden"
+      >
+        {/* Subtle background glow for main section */}
+        <div
+          className="absolute -top-16 -left-16 w-64 h-64 rounded-full mix-blend-multiply filter blur-xl animate-blob -z-10"
+          style={{ backgroundColor: "var(--color-button-primary)", opacity: 0.1 }}
+        ></div>
+        <div
+          className="absolute -bottom-16 -right-16 w-64 h-64 rounded-full mix-blend-multiply filter blur-xl animate-blob animation-delay-2000 -z-10"
+          style={{ backgroundColor: "var(--color-button-primary)", opacity: 0.1 }}
+        ></div>
+
+        <h1
+          className="text-5xl md:text-6xl lg:text-7xl font-extrabold mb-5 leading-tight drop-shadow-lg animate-fade-in-up"
+          style={{ color: "var(--color-text-white)" }}
+        >
+          Welcome, {user?.user_metadata?.full_name || user?.email || "User"}!
+        </h1>
+        <p
+          className="text-lg md:text-xl lg:text-2xl mb-0 max-w-3xl leading-relaxed animate-fade-in-up delay-200"
+          style={{ color: "var(--color-text-white-subtle)" }}
+        >
+          Your central hub for document management and signatures.
+        </p>
+      </div>
 
       {loading ? (
-        <div style={dashboardStyles.loadingContainer}>Loading dashboard data...</div>
+        <div className="text-center p-24 text-2xl text-[var(--brand-text-light)]">
+          Loading dashboard data...
+        </div>
       ) : (
-        <div style={dashboardStyles.gridContainer}>
-          {/* Section 1: My Uploaded Documents */}
-          <div
-            style={{
-              ...dashboardStyles.card,
-              ...(hoveredCard === "ownedDocs" && dashboardStyles.cardHover),
-            }}
-            onMouseEnter={() => setHoveredCard("ownedDocs")}
-            onMouseLeave={() => setHoveredCard(null)}
-          >
-            <h2 style={dashboardStyles.cardTitle}>My Documents</h2>
-            {ownedDocuments.length === 0 ? (
-              <p style={dashboardStyles.noDataText}>
-                You haven't uploaded any documents yet.{" "}
+        <div className="w-full max-w-7xl px-4 pb-16 box-border">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {/* Section 1: My Uploaded Documents */}
+            <div
+              className="bg-[var(--brand-card)] rounded-2xl shadow-md p-8 border border-[var(--brand-border-light)]
+                         flex flex-col items-center text-center relative overflow-hidden
+                         transition-all duration-300 ease-out hover:scale-[1.02] hover:shadow-lg group"
+            >
+              <h2 className="text-3xl font-extrabold text-[var(--brand-heading)] mb-6 pb-4 border-b-2 border-[var(--brand-border)] w-full">
+                My Documents
+              </h2>
+              <div className="my-8 flex flex-col items-center flex-grow">
+                <span
+                  className="text-7xl font-extrabold block mb-4 bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-secondary)] bg-clip-text text-transparent drop-shadow-md"
+                >
+                  {ownedDocuments.length}
+                </span>
+                <p className="text-xl text-[var(--brand-text-light)] leading-relaxed">
+                  documents uploaded
+                </p>
+              </div>
+              <Link
+                to="/user/documents"
+                className="inline-flex justify-center items-center w-auto
+                           bg-gradient-to-br from-[var(--color-primary-light)] to-[var(--color-primary)]
+                           text-[var(--color-text-white)] border-none py-4 px-8 rounded-full font-bold text-lg
+                           transition-all duration-300 ease-out shadow-md
+                           hover:from-[var(--color-primary)] hover:to-[var(--color-primary-dark)] hover:translate-y-[-4px] hover:shadow-lg"
+              >
+                View All My Documents
+              </Link>
+            </div>
+
+            {/* Section 2: Pending Signatures (Awaiting My Signature) */}
+            <div
+              className="bg-[var(--brand-card)] rounded-2xl shadow-md p-8 border border-[var(--brand-border-light)]
+                         flex flex-col items-center text-center relative overflow-hidden
+                         transition-all duration-300 ease-out hover:scale-[1.02] hover:shadow-lg group"
+            >
+              <h2 className="text-3xl font-extrabold text-[var(--brand-heading)] mb-6 pb-4 border-b-2 border-[var(--brand-border)] w-full">
+                Pending My Signature
+              </h2>
+              <div className="my-8 flex flex-col items-center flex-grow">
+                <span
+                  className="text-7xl font-extrabold block mb-4 bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-secondary)] bg-clip-text text-transparent drop-shadow-md"
+                >
+                  {pendingSignatures.length}
+                </span>
+                <p className="text-xl text-[var(--brand-text-light)] leading-relaxed">
+                  documents awaiting your signature
+                </p>
+              </div>
+              <Link
+                to="/user/signature-requests?tab=received"
+                className="inline-flex justify-center items-center w-auto
+                           bg-gradient-to-br from-[var(--color-primary-light)] to-[var(--color-primary)]
+                           text-[var(--color-text-white)] border-none py-4 px-8 rounded-full font-bold text-lg
+                           transition-all duration-300 ease-out shadow-md
+                           hover:from-[var(--color-primary)] hover:to-[var(--color-primary-dark)] hover:translate-y-[-4px] hover:shadow-lg"
+              >
+                View All Pending
+              </Link>
+            </div>
+
+            {/* Section 3: Recently Signed Documents */}
+            <div
+              className="bg-[var(--brand-card)] rounded-2xl shadow-md p-8 border border-[var(--brand-border-light)]
+                         flex flex-col items-center text-center relative overflow-hidden
+                         transition-all duration-300 ease-out hover:scale-[1.02] hover:shadow-lg group"
+            >
+              <h2 className="text-3xl font-extrabold text-[var(--brand-heading)] mb-6 pb-4 border-b-2 border-[var(--brand-border)] w-full">
+                Recently Signed
+              </h2>
+              <div className="my-8 flex flex-col items-center flex-grow">
+                <span
+                  className="text-7xl font-extrabold block mb-4 bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-secondary)] bg-clip-text text-transparent drop-shadow-md"
+                >
+                  {completedSignatures.length}
+                </span>
+                <p className="text-xl text-[var(--brand-text-light)] leading-relaxed">
+                  documents you've signed
+                </p>
+              </div>
+              <Link
+                to="/user/signature-requests?tab=received"
+                className="inline-flex justify-center items-center w-auto
+                           bg-gradient-to-br from-[var(--color-primary-light)] to-[var(--color-primary)]
+                           text-[var(--color-text-white)] border-none py-4 px-8 rounded-full font-bold text-lg
+                           transition-all duration-300 ease-out shadow-md
+                           hover:from-[var(--color-primary)] hover:to-[var(--color-primary-dark)] hover:translate-y-[-4px] hover:shadow-lg"
+              >
+                View All Signed
+              </Link>
+            </div>
+
+            {/* Section 4: Quick Actions / Call to Action */}
+            <div
+              className="bg-gradient-to-br from-[var(--color-bg-dark-start)] to-[var(--color-bg-dark-end)]
+                         text-[var(--color-text-white)] rounded-2xl shadow-xl p-16
+                         flex flex-col items-center text-center col-span-1 md:col-span-2 lg:col-span-3
+                         transition-all duration-300 ease-out hover:scale-[1.01] hover:shadow-2xl"
+            >
+              <h2 className="text-4xl md:text-5xl font-extrabold mb-6 drop-shadow-lg">
+                Ready to Sign?
+              </h2>
+              <p className="text-lg md:text-xl mb-10 max-w-2xl leading-relaxed text-[var(--color-text-white-subtle)]">
+                Start a new signing process or upload a document to send for signatures.
+              </p>
+              <div className="flex flex-wrap justify-center gap-6">
                 <Link
                   to="/user/documents/upload"
-                  style={{
-                    ...dashboardStyles.actionLink,
-                    ...(hoveredActionButton === "uploadDoc" && dashboardStyles.actionLinkHover),
-                  }}
-                  onMouseEnter={() => setHoveredActionButton("uploadDoc")}
-                  onMouseLeave={() => setHoveredActionButton(null)}
+                  className="inline-block py-4 px-10 rounded-full shadow-md font-bold text-xl
+                             bg-[var(--brand-card)] text-[var(--color-button-primary)]
+                             transition-all duration-300 ease-out hover:bg-gray-100 hover:translate-y-[-4px] hover:shadow-lg"
                 >
-                  Upload one now!
+                  Upload New Document
                 </Link>
-              </p>
-            ) : (
-              <ul style={dashboardStyles.list}>
-                {ownedDocuments.slice(0, 5).map((doc) => renderDocumentItem(doc, "owned"))}
-                {ownedDocuments.length > 5 && (
-                  <li style={dashboardStyles.viewAllItem}>
-                    <Link
-                      to="/user/documents"
-                      style={{
-                        ...dashboardStyles.actionLink,
-                        ...(hoveredActionButton === "viewAllDocs" &&
-                          dashboardStyles.actionLinkHover),
-                      }}
-                      onMouseEnter={() => setHoveredActionButton("viewAllDocs")}
-                      onMouseLeave={() => setHoveredActionButton(null)}
-                    >
-                      View all your documents
-                    </Link>
-                  </li>
-                )}
-              </ul>
-            )}
-          </div>
-
-          {/* Section 2: Pending Signatures (Awaiting My Signature) */}
-          <div
-            style={{
-              ...dashboardStyles.card,
-              ...(hoveredCard === "pendingSignatures" && dashboardStyles.cardHover),
-            }}
-            onMouseEnter={() => setHoveredCard("pendingSignatures")}
-            onMouseLeave={() => setHoveredCard(null)}
-          >
-            <h2 style={dashboardStyles.cardTitle}>Pending My Signature</h2>
-            {pendingSignatures.length === 0 ? (
-              <p style={dashboardStyles.noDataText}>
-                No documents are currently awaiting your signature.
-              </p>
-            ) : (
-              <ul style={dashboardStyles.list}>
-                {pendingSignatures.slice(0, 5).map((req) => renderDocumentItem(req, "pending"))}
-                {pendingSignatures.length > 5 && (
-                  <li style={dashboardStyles.viewAllItem}>
-                    <Link
-                      to="/user/signature-requests"
-                      style={{
-                        ...dashboardStyles.actionLink,
-                        ...(hoveredActionButton === "viewAllPending" &&
-                          dashboardStyles.actionLinkHover),
-                      }}
-                      onMouseEnter={() => setHoveredActionButton("viewAllPending")}
-                      onMouseLeave={() => setHoveredActionButton(null)}
-                    >
-                      View all pending signatures
-                    </Link>
-                  </li>
-                )}
-              </ul>
-            )}
-          </div>
-
-          {/* Section 3: Recently Signed Documents */}
-          <div
-            style={{
-              ...dashboardStyles.card,
-              ...(hoveredCard === "completedSignatures" && dashboardStyles.cardHover),
-            }}
-            onMouseEnter={() => setHoveredCard("completedSignatures")}
-            onMouseLeave={() => setHoveredCard(null)}
-          >
-            <h2 style={dashboardStyles.cardTitle}>Recently Signed</h2>
-            {completedSignatures.length === 0 ? (
-              <p style={dashboardStyles.noDataText}>You haven't signed any documents yet.</p>
-            ) : (
-              <ul style={dashboardStyles.list}>
-                {completedSignatures.slice(0, 5).map((req) => renderDocumentItem(req, "completed"))}
-                {completedSignatures.length > 5 && (
-                  <li style={dashboardStyles.viewAllItem}>
-                    <Link
-                      to="/user/signature-requests"
-                      style={{
-                        ...dashboardStyles.actionLink,
-                        ...(hoveredActionButton === "viewAllSigned" &&
-                          dashboardStyles.actionLinkHover),
-                      }}
-                      onMouseEnter={() => setHoveredActionButton("viewAllSigned")}
-                      onMouseLeave={() => setHoveredActionButton(null)}
-                    >
-                      View all signed documents
-                    </Link>
-                  </li>
-                )}
-              </ul>
-            )}
-          </div>
-
-          {/* Section 4: Quick Actions / Call to Action - REVAMPED */}
-          <div
-            style={{
-              ...dashboardStyles.callToActionCard,
-              ...(hoveredCard === "callToAction" && dashboardStyles.callToActionCardHover),
-            }}
-            onMouseEnter={() => setHoveredCard("callToAction")}
-            onMouseLeave={() => setHoveredCard(null)}
-          >
-            <h2 style={dashboardStyles.callToActionCardTitle}>Ready to Sign?</h2>
-            <p style={dashboardStyles.callToActionText}>
-              Start a new signing process or upload a document to send for signatures.
-            </p>
-            <div style={dashboardStyles.callToActionButtons}>
-              <Link
-                to="/user/documents/upload"
-                style={{
-                  ...dashboardStyles.primaryButton,
-                  marginRight: "15px",
-                  ...(hoveredActionButton === "uploadNew" && dashboardStyles.primaryButtonHover),
-                }}
-                onMouseEnter={() => setHoveredActionButton("uploadNew")}
-                onMouseLeave={() => setHoveredActionButton(null)}
-              >
-                Upload New Document
-              </Link>
-              <Link
-                to="/user/signature-requests"
-                style={{
-                  ...dashboardStyles.secondaryButton,
-                  ...(hoveredActionButton === "requestSignature" &&
-                    dashboardStyles.secondaryButtonHover),
-                }}
-                onMouseEnter={() => setHoveredActionButton("requestSignature")}
-                onMouseLeave={() => setHoveredActionButton(null)}
-              >
-                Request Signature
-              </Link>
+                <Link
+                  to="/user/signature-requests"
+                  className="inline-block py-4 px-10 rounded-full shadow-md font-bold text-xl
+                             bg-transparent text-[var(--color-text-white)] border-2 border-[var(--color-text-white-subtle)]
+                             transition-all duration-300 ease-out hover:bg-[rgba(255,255,255,0.1)] hover:translate-y-[-4px] hover:border-white"
+                >
+                  Request Signature
+                </Link>
+              </div>
             </div>
           </div>
         </div>
       )}
     </div>
   );
-};
-
-// Centralized styles object for the dashboard
-const dashboardStyles = {
-  pageContainer: {
-    backgroundColor: "var(--brand-bg-light)",
-    minHeight: "calc(100vh - var(--navbar-height, 0px))",
-    padding: "40px",
-    fontFamily: "'Inter', sans-serif",
-    color: "var(--brand-text)",
-  },
-  heading: {
-    fontSize: "3.2em",
-    fontWeight: "800",
-    color: "var(--brand-heading)",
-    marginBottom: "10px",
-    textShadow: "0 2px 4px rgba(0,0,0,0.05)",
-  },
-  subheading: {
-    fontSize: "1.3em",
-    color: "var(--brand-text-light)",
-    marginBottom: "40px",
-  },
-  loadingContainer: {
-    textAlign: "center",
-    padding: "60px",
-    fontSize: "1.2em",
-    color: "var(--brand-text-light)",
-  },
-  gridContainer: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-    gap: "30px",
-  },
-  card: {
-    backgroundColor: "var(--brand-card)",
-    borderRadius: "12px",
-    boxShadow: "0 6px 20px rgba(0, 0, 0, 0.08)",
-    padding: "30px",
-    border: "1px solid var(--brand-border)",
-    transition: "transform 0.3s ease, box-shadow 0.3s ease",
-  },
-  // Hover style for cards
-  cardHover: {
-    transform: "translateY(-5px)",
-    boxShadow: "0 10px 25px rgba(0, 0, 0, 0.12)",
-  },
-  cardTitle: {
-    fontSize: "2em",
-    fontWeight: "700",
-    color: "var(--brand-heading)",
-    marginBottom: "20px",
-    paddingBottom: "10px",
-    borderBottom: "1px solid var(--brand-border)",
-  },
-  list: {
-    listStyleType: "none",
-    padding: 0,
-    margin: 0,
-  },
-  listItem: {
-    marginBottom: "15px",
-    paddingBottom: "10px",
-    borderBottom: "1px solid var(--brand-border-light)",
-    "&:last-child": {
-      borderBottom: "none",
-    },
-  },
-  listItemLink: {
-    color: "var(--brand-text)",
-    textDecoration: "none",
-    display: "block",
-    transition: "color 0.2s ease-in-out",
-  },
-  // Hover style for list item links
-  listItemLinkHover: {
-    color: "var(--color-button-primary)",
-  },
-  listItemTitle: {
-    fontWeight: "600",
-    fontSize: "1.1em",
-  },
-  listItemStatus: {
-    fontSize: "0.9em",
-    color: "var(--brand-text-light)",
-    marginLeft: "8px",
-  },
-  noDataText: {
-    color: "var(--brand-text-light)",
-    fontStyle: "italic",
-    padding: "10px 0",
-  },
-  actionLink: {
-    color: "var(--color-button-primary)",
-    textDecoration: "none",
-    fontWeight: "600",
-    transition: "text-decoration 0.2s ease-in-out",
-  },
-  // Hover style for action links
-  actionLinkHover: {
-    textDecoration: "underline",
-  },
-  viewAllItem: {
-    marginTop: "20px",
-    textAlign: "right",
-  },
-  callToActionCard: {
-    backgroundColor: "var(--brand-bg-dark)",
-    color: "white",
-    borderRadius: "12px",
-    boxShadow: "0 8px 25px rgba(0, 0, 0, 0.2)",
-    padding: "30px",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "space-between",
-    alignItems: "center",
-    textAlign: "center",
-    gridColumn: "1 / -1",
-    background: `linear-gradient(to bottom right, var(--brand-bg-dark), #333333)`,
-    transition: "transform 0.3s ease, box-shadow 0.3s ease",
-  },
-  // Hover style for Call to Action Card
-  callToActionCardHover: {
-    transform: "translateY(-5px)",
-    boxShadow: "0 12px 35px rgba(0, 0, 0, 0.3)",
-  },
-  callToActionCardTitle: {
-    fontSize: "2.4em",
-    fontWeight: "800",
-    color: "white",
-    marginBottom: "15px",
-    textShadow: "0 2px 4px rgba(0,0,0,0.1)",
-  },
-  callToActionText: {
-    fontSize: "1.1em",
-    marginBottom: "25px",
-    maxWidth: "500px",
-    lineHeight: "1.6",
-    color: "rgba(255, 255, 255, 0.9)",
-  },
-  callToActionButtons: {
-    display: "flex",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: "15px",
-  },
-  primaryButton: {
-    backgroundColor: "white",
-    color: "var(--color-button-primary)",
-    border: "none",
-    padding: "12px 28px",
-    borderRadius: "9999px",
-    fontWeight: "700",
-    textDecoration: "none",
-    transition: "background-color 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease",
-    boxShadow: "0 4px 10px rgba(0,0,0,0.1)",
-    cursor: "pointer",
-    fontSize: "1em",
-  },
-  // Hover style for primary button
-  primaryButtonHover: {
-    backgroundColor: "#f0f0f0",
-    transform: "translateY(-2px)",
-    boxShadow: "0 6px 12px rgba(0,0,0,0.15)",
-  },
-  secondaryButton: {
-    backgroundColor: "transparent",
-    color: "white",
-    border: "2px solid white",
-    padding: "12px 28px",
-    borderRadius: "9999px",
-    fontWeight: "700",
-    textDecoration: "none",
-    transition: "background-color 0.3s ease, transform 0.3s ease, border-color 0.3s ease",
-    cursor: "pointer",
-    fontSize: "1em",
-  },
-  // Hover style for secondary button
-  secondaryButtonHover: {
-    backgroundColor: "rgba(255,255,255,0.1)",
-    transform: "translateY(-2px)",
-  },
 };
 
 export default UserDashboardPage;

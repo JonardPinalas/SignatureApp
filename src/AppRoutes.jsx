@@ -11,6 +11,7 @@ import MyDocumentsPage from "./pages/user/MyDocumentsPage";
 import DocumentUploadPage from "./pages/user/DocumentUploadPage";
 import DocumentDetailsPage from "./pages/user/DocumentDetailsPage";
 import SignatureRequestsPage from "./pages/user/SignatureRequestsListPage";
+import MyProfilePage from "./pages/MyProfilePage";
 
 function AppRoutes({ session }) {
   const location = useLocation();
@@ -41,22 +42,67 @@ function AppRoutes({ session }) {
           <Route
             path="/verify-email-success"
             element={
-              <div style={{ textAlign: "center", padding: "50px" }}>
-                <h1>Email Verified!</h1>
-                <p>
-                  Your email has been successfully verified. You can now{" "}
-                  <Link to="/login">login</Link>.
-                </p>
+              // Styled Email Verified Page
+              <div
+                className="min-h-screen flex flex-col items-center justify-center p-4 transition-colors duration-300 font-inter"
+                style={{
+                  backgroundColor: "var(--brand-bg-light)",
+                  backgroundImage:
+                    "linear-gradient(135deg, var(--brand-bg-light), var(--brand-bg-dark))",
+                  color: "var(--brand-text)",
+                }}
+              >
+                <div className="bg-[var(--brand-card)] rounded-2xl shadow-xl p-8 md:p-12 text-center max-w-md w-full animate-fade-in-up">
+                  <h1 className="text-4xl font-extrabold text-[var(--brand-heading)] mb-4 drop-shadow-md">
+                    Email Verified!
+                  </h1>
+                  <p className="text-lg text-[var(--brand-text-light)] mb-6 leading-relaxed">
+                    Your email has been successfully verified. You can now securely log in.
+                  </p>
+                  <Link
+                    to="/login"
+                    className="inline-block py-3 px-8 rounded-full shadow-lg font-bold text-lg
+                               bg-gradient-to-br from-[var(--color-button-primary)] to-[var(--color-button-primary-hover)]
+                               text-white transition-all duration-300 ease-out hover:from-[var(--color-button-primary-hover)]
+                               hover:to-[var(--color-button-primary)] hover:translate-y-[-2px] hover:shadow-xl"
+                  >
+                    Go to Login
+                  </Link>
+                </div>
               </div>
             }
           />
           <Route
             path="/access-denied"
             element={
-              <div style={{ textAlign: "center", padding: "50px" }}>
-                <h1>Access Denied</h1>
-                <p>You do not have permission to view this page.</p>
-                <Link to="/login">Go to Login</Link>
+              // Styled Access Denied Page
+              <div
+                className="min-h-screen flex flex-col items-center justify-center p-4 transition-colors duration-300 font-inter"
+                style={{
+                  backgroundColor: "var(--brand-bg-light)",
+                  backgroundImage:
+                    "linear-gradient(135deg, var(--brand-bg-light), var(--brand-bg-dark))",
+                  color: "var(--brand-text)",
+                }}
+              >
+                <div className="bg-[var(--brand-card)] rounded-2xl shadow-xl p-8 md:p-12 text-center max-w-md w-full animate-fade-in-up">
+                  <h1 className="text-4xl font-extrabold text-[var(--brand-heading)] mb-4 drop-shadow-md">
+                    Access Denied
+                  </h1>
+                  <p className="text-lg text-[var(--brand-text-light)] mb-6 leading-relaxed">
+                    You do not have permission to view this page. Please log in with appropriate
+                    credentials.
+                  </p>
+                  <Link
+                    to="/login"
+                    className="inline-block py-3 px-8 rounded-full shadow-lg font-bold text-lg
+                               bg-gradient-to-br from-[var(--color-button-primary)] to-[var(--color-button-primary-hover)]
+                               text-white transition-all duration-300 ease-out hover:from-[var(--color-button-primary-hover)]
+                               hover:to-[var(--color-button-primary)] hover:translate-y-[-2px] hover:shadow-xl"
+                  >
+                    Go to Login
+                  </Link>
+                </div>
               </div>
             }
           />
@@ -67,15 +113,39 @@ function AppRoutes({ session }) {
           <Route path="/user/documents/upload" element={<DocumentUploadPage />} />
           <Route path="/user/documents/:id" element={<DocumentDetailsPage />} />
           <Route path="/user/signature-requests" element={<SignatureRequestsPage />} />
+          <Route path="/user/profile" element={<MyProfilePage />} />
 
-          {/* 404 */}
+          {/* 404 - Page Not Found */}
           <Route
             path="*"
             element={
-              <div style={{ textAlign: "center", padding: "50px" }}>
-                <h1>404 - Page Not Found</h1>
-                <p>The page you are looking for does not exist.</p>
-                <Link to="/">Go Home</Link>
+              // Styled 404 Page
+              <div
+                className="min-h-screen flex flex-col items-center justify-center p-4 transition-colors duration-300 font-inter"
+                style={{
+                  backgroundColor: "var(--brand-bg-light)",
+                  backgroundImage:
+                    "linear-gradient(135deg, var(--brand-bg-light), var(--brand-bg-dark))",
+                  color: "var(--brand-text)",
+                }}
+              >
+                <div className="bg-[var(--brand-card)] rounded-2xl shadow-xl p-8 md:p-12 text-center max-w-md w-full animate-fade-in-up">
+                  <h1 className="text-5xl md:text-6xl font-extrabold text-[var(--brand-heading)] mb-4 drop-shadow-md">
+                    404
+                  </h1>
+                  <p className="text-xl md:text-2xl text-[var(--brand-text-light)] mb-6 leading-relaxed">
+                    Oops! The page you're looking for doesn't exist.
+                  </p>
+                  <Link
+                    to="/"
+                    className="inline-block py-3 px-8 rounded-full shadow-lg font-bold text-lg
+                               bg-gradient-to-br from-[var(--color-button-primary)] to-[var(--color-button-primary-hover)]
+                               text-white transition-all duration-300 ease-out hover:from-[var(--color-button-primary-hover)]
+                               hover:to-[var(--color-button-primary)] hover:translate-y-[-2px] hover:shadow-xl"
+                  >
+                    Go Home
+                  </Link>
+                </div>
               </div>
             }
           />

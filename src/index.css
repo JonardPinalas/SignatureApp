@@ -6,9 +6,9 @@
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
+  color-scheme: light dark; /* This tells the browser your site supports both light and dark schemes */
 
-  /* Light Mode Colors */
+  /* Light Mode Colors (Defaults) */
   --brand-bg-light: #f0f8ff; /* Very light blue/off-white */
   --brand-bg-dark: #e0eeff; /* Slightly darker blue for gradients */
   --brand-text: #334155; /* Slate-700 equivalent */
@@ -16,37 +16,49 @@
   --brand-heading: #1e293b; /* Slate-800 equivalent */
   --brand-card: #ffffff; /* White for cards */
   --brand-border: #e2e8f0; /* Light border for cards */
-  --brand-border-light: #e2e8f0; /* Adding this for consistency with your usage */
+  --brand-border-light: #e2e8f0;
 
   /* User-defined primary button/accent colors (Orange for light mode) */
   --color-button-primary: #ff8c00; /* Vibrant Orange */
   --color-button-primary-hover: #e67a00; /* Darker Orange for hover */
   --color-text-accent-light: #ffb040; /* Lighter Orange for accents */
 
-  /* Additional colors you used in your JSX, assuming you want them theme-aware */
-  --color-secondary: #6b7280;
-  --color-secondary-hover: #4b5563;
-  --color-info: #3b82f6;
-  --color-info-hover: #2563eb;
-  --color-info-bg: #dbeafe;
-  --color-info-text: #1e40af;
-  --color-success: #22c55e;
-  --color-success-hover: #16a34a;
-  --color-success-bg: #d1fae5;
-  --color-success-text: #065f46;
-  --color-error: #ef4444;
-  --color-error-hover: #dc2626;
-  --color-error-bg: #fee2e2;
-  --color-error-text: #991b1b;
-  --color-warning-bg: #fffbeb;
-  --color-warning-text: #92400e;
-  --color-tertiary: #8b5cf6;
-  --color-tertiary-hover: #7c3aed;
-  --color-grey: #6b7280;
-  --color-grey-hover: #4b5563;
+  /* Additional colors, assuming you want them theme-aware */
+  --color-secondary: #6B7280;
+  --color-secondary-hover: #4B5563;
+  --color-info: #3B82F6;
+  --color-info-hover: #2563EB;
+  --color-info-bg: #DBEAFE;
+  --color-info-text: #1E40AF;
+  --color-success: #22C55E;
+  --color-success-hover: #16A34A;
+  --color-success-bg: #D1FAE5;
+  --color-success-text: #065F46;
+  --color-error: #EF4444;
+  --color-error-hover: #DC2626;
+  --color-error-bg: #FEE2E2;
+  --color-error-text: #991B1B;
+  --color-warning-bg: #FFFBEB;
+  --color-warning-text: #92400E;
+  --color-tertiary: #8B5CF6;
+  --color-tertiary-hover: #7C3AED;
+  --color-grey: #6B7280;
+  --color-grey-hover: #4B5563;
 
   /* Custom Spacing / Heights */
-  --navbar-height: 80px; /* Example value, adjust as needed */
+  --navbar-height: 80px;
+
+  /* Shadows (Refined for more depth in light mode) */
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.03);
+  --shadow-md: 0 6px 16px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.15);
+  --shadow-xl: 0 20px 45px rgba(0, 0, 0, 0.25);
+
+
+  /* Transitions */
+  --transition-fast: 0.2s ease-out;
+  --transition-medium: 0.3s ease-out;
+  --transition-slow: 0.4s ease-out;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -54,7 +66,7 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Default Light Mode Background and Text Colors */
+/* Default Light Mode Background and Text Colors for the body */
 body {
   margin: 0;
   min-width: 320px;
@@ -82,32 +94,63 @@ body {
     --color-text-accent-light: #fdba74; /* Your specified lighter orange */
 
     /* Dark mode for other colors, if applicable */
-    --color-secondary: #9ca3af;
-    --color-secondary-hover: #e5e7eb;
-    --color-info: #60a5fa;
-    --color-info-hover: #3b82f6;
-    --color-info-bg: #1e3a8a;
-    --color-info-text: #bfdbfe;
-    --color-success: #4ade80;
-    --color-success-hover: #22c55e;
-    --color-success-bg: #065f46;
-    --color-success-text: #a7f3d0;
-    --color-error: #f87171;
-    --color-error-hover: #ef4444;
-    --color-error-bg: #7f1d1d;
-    --color-error-text: #fecaca;
-    --color-warning-bg: #78350f;
-    --color-warning-text: #fde68a;
-    --color-tertiary: #a78bfa;
-    --color-tertiary-hover: #8b5cf6;
-    --color-grey: #9ca3af;
-    --color-grey-hover: #e5e7eb;
+    --color-secondary: #9CA3AF;
+    --color-secondary-hover: #E5E7EB;
+    --color-info: #60A5FA;
+    --color-info-hover: #3B82F6;
+    --color-info-bg: #1E3A8A;
+    --color-info-text: #BFDBFE;
+    --color-success: #4ADE80;
+    --color-success-hover: #22C55E;
+    --color-success-bg: #065F46;
+    --color-success-text: #A7F3D0;
+    --color-error: #F87171;
+    --color-error-hover: #EF4444;
+    --color-error-bg: #7F1D1D;
+    --color-error-text: #FECACA;
+    --color-warning-bg: #78350F;
+    --color-warning-text: #FDE68A;
+    --color-tertiary: #A78BFA;
+    --color-tertiary-hover: #8B5CF6;
+    --color-grey: #9CA3AF;
+    --color-grey-hover: #E5E7EB;
+
+    /* Override generic variables to use dark mode specifics where appropriate */
+    --color-primary: var(--color-button-primary); /* Primary purple becomes dark mode orange */
+    --color-primary-dark: var(--color-button-primary-hover);
+    --color-primary-light: var(--color-text-accent-light);
+
+    --color-text-dark: var(--brand-heading);
+    --color-text-light: var(--brand-text-light);
+    --color-text-white: var(--brand-text); /* White text in light mode is now brand-text in dark mode */
+    --color-text-white-subtle: rgba(255, 255, 255, 0.85); /* Adjust if needed for dark mode */
+
+    --color-bg-page-start: var(--brand-bg-light);
+    --color-bg-page-end: var(--brand-bg-dark);
+    --color-bg-card: var(--brand-card);
+    --color-bg-dark-start: #2a2a2a; /* Keep dark background, or replace with brand-bg-dark for consistency */
+    --color-bg-dark-end: #1e1e1e;
+
+    --color-border-light: var(--brand-border-light);
+    --color-border-medium: var(--brand-border);
+
+    /* Adjust shadows for dark mode if desired */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
+    --shadow-xl: 0 16px 40px rgba(0, 0, 0, 0.5);
+  }
+
+  /* You might also want to adjust body background/color directly for dark mode */
+  body {
+    background-color: var(--brand-bg-light); /* Use dark mode background */
+    color: var(--brand-text); /* Use dark mode text color */
   }
 }
 
 /* Tailwind CSS v4 Configuration within CSS */
 @theme {
-  /* Colors */
+  /* Colors - Mapping CSS variables to Tailwind's theme system */
   --color-brand-bg-light: var(--brand-bg-light);
   --color-brand-bg-dark: var(--brand-bg-dark);
   --color-brand-text: var(--brand-text);
@@ -149,13 +192,11 @@ body {
   --font-inter: system-ui, Avenir, Helvetica, Arial, sans-serif; /* Or 'Inter', sans-serif if you have Inter font loaded */
 
   /* Shadows (for specific custom shadows) */
-  --shadow-sm-light: 0 2px 4px rgba(0, 0, 0, 0.05); /* Direct value for drop-shadow */
-  --shadow-card: 0 6px 20px rgba(0, 0, 0, 0.08); /* Direct value for card shadow */
+  --shadow-sm-light: 0 2px 4px rgba(0,0,0,0.05); /* Direct value for drop-shadow */
+  --shadow-card: 0 6px 20px rgba(0,0,0,0.08); /* Direct value for card shadow */
 }
 
 /* Custom Utilities (if needed for specific patterns not directly covered by @theme) */
-/* This is less common for simple colors but useful for more complex patterns */
-/* For example, if you wanted a specific type of shadow that isn't a direct color mapping */
 @utilities {
   .drop-shadow-sm-light {
     filter: drop-shadow(var(--shadow-sm-light));
@@ -166,7 +207,6 @@ body {
   .min-h-screen-minus-navbar {
     min-height: var(--spacing-screen-minus-navbar);
   }
-  /* For font family, if --font-inter isn't enough, you might need a custom utility */
   .font-inter {
     font-family: var(--font-inter);
   }
