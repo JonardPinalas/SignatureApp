@@ -2,22 +2,22 @@ import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import Notification from "./components/Notification";
 import { supabase } from "../utils/supabaseClient";
+import { sendEmail, resetEmailSentFlags } from "../utils/mailer"; // Import mailer utility
 
 // Cooldown for resending verification email
 const RESEND_COOLDOWN_SECONDS = 120;
 
 // Frontend throttling constants
-// These act as a first line of defense to reduce unnecessary backend calls.
-// The backend RPC remains the authoritative source for blocking/throttling.
 const THROTTLE_LIMIT = 5; // Number of failed attempts before temporary throttle
 const THROTTLE_COOLDOWN_SECONDS = 60; // Cooldown duration for temporary throttle
+const BLOCK_THRESHOLD_DB = 10; // Number of failed attempts in DB before account is blocked
 
 const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [notification, setNotification] = useState(null);
   const [showEmailVerificationModal, setShowEmailVerificationModal] = useState(false);
-  const [showBlockedModal, setShowBlockedModal] = useState(false);
+  const [showBlockedModal, setShowBlockedModal] = useState(false); // Used for DB-triggered block
   const [showFrontendThrottledModal, setShowFrontendThrottledModal] = useState(false);
 
   // State for resend email cooldown
@@ -30,10 +30,8 @@ const Login = () => {
   const [loginThrottleCountdown, setLoginThrottleCountdown] = useState(0);
   const loginThrottleTimerRef = useRef(null);
 
-  // State for backend-driven user status. This will now be updated directly by the RPC response.
+  // State for backend-driven user status (fetched from public.users)
   const [isUserBlockedInDb, setIsUserBlockedInDb] = useState(false);
-  // Removed dbFailedLoginAttempts and dbLastFailedLoginAt as they are not directly used for UI logic anymore
-  // and their source of truth is now the RPC response.
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -80,7 +78,6 @@ const Login = () => {
   }, []);
 
   // Effect for frontend login throttle timer (local storage based)
-  // This remains as a client-side optimization to prevent hitting the backend excessively.
   useEffect(() => {
     const storedFrontendFailedAttempts = localStorage.getItem(`failedLoginAttempts_${email}`);
     const storedLastFrontendAttemptTime = localStorage.getItem(`lastFailedLoginTime_${email}`);
@@ -109,6 +106,7 @@ const Login = () => {
               clearInterval(loginThrottleTimerRef.current);
               loginThrottleTimerRef.current = null;
               setShowFrontendThrottledModal(false);
+              // Reset failed attempts and last attempt time after cooldown
               localStorage.removeItem(`failedLoginAttempts_${email}`);
               localStorage.removeItem(`lastFailedLoginTime_${email}`);
               setFrontendFailedLoginAttempts(0);
@@ -134,8 +132,40 @@ const Login = () => {
     };
   }, [email]);
 
-  // Removed the useEffect that fetched user status directly from public.users.
-  // The RPC function will now provide the authoritative status after each login attempt.
+  // Effect to fetch user's block status from DB on email change or component mount
+  // This helps to immediately show the blocked modal if the user is already blocked in DB.
+  useEffect(() => {
+    const fetchUserBlockStatus = async () => {
+      if (!email) {
+        setIsUserBlockedInDb(false);
+        setShowBlockedModal(false);
+        return;
+      }
+      try {
+        const { data, error } = await supabase.from("users").select("blocked").eq("email", email).single();
+
+        if (error && error.code !== "PGRST116") {
+          // PGRST116 means no rows found
+          console.error("Error fetching user block status:", error);
+          // Handle error, e.g., set a notification
+          return;
+        }
+
+        if (data && data.blocked) {
+          setIsUserBlockedInDb(true);
+          setShowBlockedModal(true);
+          setNotification(null); // Clear other notifications
+        } else {
+          setIsUserBlockedInDb(false);
+          setShowBlockedModal(false);
+        }
+      } catch (err) {
+        console.error("Unexpected error fetching user block status:", err);
+      }
+    };
+
+    fetchUserBlockStatus();
+  }, [email]); // Re-fetch when email changes
 
   // Function to update failed login attempts in localStorage (for frontend throttle)
   const updateFrontendFailedAttempts = (currentEmail, increment = true) => {
@@ -204,7 +234,7 @@ const Login = () => {
             return prev - 1;
           });
         }, 1000);
-        return;
+        return; // Prevent login attempt
       } else {
         setShowFrontendThrottledModal(false);
         localStorage.removeItem(`failedLoginAttempts_${email}`);
@@ -212,6 +242,14 @@ const Login = () => {
         setFrontendFailedLoginAttempts(0);
         setLastFrontendFailedLoginTime(null);
       }
+    }
+
+    // --- Check if user is already blocked in DB (from previous attempts) ---
+    // This check is performed before attempting Supabase Auth login to save resources.
+    if (isUserBlockedInDb) {
+      setShowBlockedModal(true);
+      setNotification({ message: "Your account has been blocked. Please contact the administrator.", type: "error" });
+      return;
     }
 
     try {
@@ -234,49 +272,83 @@ const Login = () => {
         loginSuccess = false;
         authErrorMessage = authError.message;
         updateFrontendFailedAttempts(email, true); // Increment frontend failed attempts
+
+        // --- Fetch user's current status from DB for backend logic ---
+        const { data: userData, error: userFetchError } = await supabase.from("users").select("id, failed_login_attempts, blocked").eq("email", email).single();
+
+        let userIdForDbUpdate = null;
+        let currentDbFailedAttempts = 0;
+        let currentDbBlockedStatus = false;
+
+        if (userData) {
+          userIdForDbUpdate = userData.id;
+          currentDbFailedAttempts = userData.failed_login_attempts || 0;
+          currentDbBlockedStatus = userData.blocked;
+        } else if (userFetchError && userFetchError.code !== "PGRST116") {
+          // PGRST116 means no rows found
+          console.error("Error fetching user status for DB update on failed login:", userFetchError);
+          setNotification({ message: "A system error occurred. Please try again later.", type: "error" });
+          return;
+        }
+
+        // --- Update backend failed attempts and block status in DB ---
+        if (userIdForDbUpdate) {
+          // Only proceed if user exists in public.users
+          let newDbFailedAttempts = currentDbFailedAttempts + 1;
+          let newBlockedStatus = currentDbBlockedStatus;
+
+          // Check for malicious warning (5 attempts)
+          if (newDbFailedAttempts === THROTTLE_LIMIT) {
+            // Send if it's exactly 5
+            // CORRECTED: Ensure 'warning' string literal is passed
+            sendEmail("warning", email, { attempts: newDbFailedAttempts, ip_address: ipAddress });
+          }
+
+          // Check for permanent block (10 attempts)
+          if (newDbFailedAttempts >= BLOCK_THRESHOLD_DB && !currentDbBlockedStatus) {
+            newBlockedStatus = true;
+            // CORRECTED: Ensure 'blocked' string literal is passed
+            sendEmail("blocked", email, { attempts: newDbFailedAttempts, ip_address: ipAddress });
+            setShowBlockedModal(true); // Show backend-driven block modal
+            setNotification(null); // Clear other notifications
+          }
+
+          await supabase
+            .from("users")
+            .update({
+              failed_login_attempts: newDbFailedAttempts,
+              last_failed_login_at: new Date().toISOString(),
+              blocked: newBlockedStatus,
+            })
+            .eq("id", userIdForDbUpdate);
+
+          setIsUserBlockedInDb(newBlockedStatus); // Update state with new block status
+        }
+
         if (authError.message === "Email not confirmed") {
           setShowEmailVerificationModal(true);
+        } else {
+          setNotification({ message: authError.message, type: "error" });
         }
       } else if (authData && authData.user) {
         loginSuccess = true;
         authUserId = authData.user.id;
         updateFrontendFailedAttempts(email, false); // Reset frontend failed attempts
-      } else {
-        loginSuccess = false;
-        authErrorMessage = "An unexpected response from Supabase Auth.";
-        updateFrontendFailedAttempts(email, true); // Increment frontend failed attempts
-      }
 
-      // --- STEP 2: Call RPC to track the attempt and get backend status ---
-      // This RPC call is now the central point for updating backend state and getting its response.
-      const { data: rpcResult, error: rpcError } = await supabase.rpc("track_login_attempt", {
-        p_email: email,
-        p_user_id: authUserId, // Pass userId if successful, null otherwise
-        p_is_success: loginSuccess,
-        p_ip_address: ipAddress,
-        p_user_agent: userAgent,
-        p_auth_error_message: authErrorMessage,
-      });
+        // --- Reset backend failed attempts and unblock on successful login ---
+        await supabase
+          .from("users")
+          .update({
+            failed_login_attempts: 0,
+            last_failed_login_at: null,
+            blocked: false, // Ensure unblocked on successful login
+          })
+          .eq("id", authUserId);
 
-      if (rpcError) {
-        console.error("RPC Error during tracking:", rpcError);
-        setNotification({ message: "A system error occurred. Please try again later.", type: "error" });
-        return; // Stop further processing if RPC itself failed
-      }
+        setIsUserBlockedInDb(false); // Update state to unblocked
+        resetEmailSentFlags(email); // Reset email sent flags for this user in localStorage
 
-      // --- STEP 3: Handle response from RPC ---
-      // The RPC result contains 'success', 'message', and 'blocked'
-      const { success: backendRpcSuccess, message: backendRpcMessage, blocked: backendRpcBlocked } = rpcResult;
-
-      setIsUserBlockedInDb(backendRpcBlocked); // Update global blocked state from RPC
-
-      if (backendRpcBlocked) {
-        // Account is permanently blocked by backend
-        setShowBlockedModal(true);
-        setNotification({ message: backendRpcMessage, type: "error" });
-      } else if (backendRpcSuccess) {
-        // Login was successful and not blocked by backend
-        setNotification({ message: backendRpcMessage, type: "success" });
+        setNotification({ message: "Login successful!", type: "success" });
         const userRole = authData.user.user_metadata?.role || "user";
         if (userRole === "admin") {
           setTimeout(() => navigate("/admin/dashboard"), 500);
@@ -284,9 +356,11 @@ const Login = () => {
           setTimeout(() => navigate("/user/dashboard"), 500);
         }
       } else {
-        // Login failed, and potentially temporarily throttled by backend
-        setNotification({ message: backendRpcMessage, type: "error" });
-        // The backendRpcMessage will contain the "try again in X seconds" if applicable.
+        // This case should ideally not happen for signInWithPassword
+        loginSuccess = false;
+        authErrorMessage = "An unexpected response from Supabase Auth.";
+        setNotification({ message: authErrorMessage, type: "error" });
+        updateFrontendFailedAttempts(email, true); // Increment frontend failed attempts
       }
     } catch (err) {
       console.error("Overall login process error:", err);
@@ -366,18 +440,19 @@ const Login = () => {
               value={email}
               onChange={(e) => {
                 setEmail(e.target.value);
-                // Clear existing throttle/block modals when email changes
                 setShowFrontendThrottledModal(false);
                 setLoginThrottleCountdown(0);
                 if (loginThrottleTimerRef.current) {
                   clearInterval(loginThrottleTimerRef.current);
                   loginThrottleTimerRef.current = null;
                 }
-                // Load new email's persisted state for frontend throttle
                 const storedFrontendFailedAttempts = localStorage.getItem(`failedLoginAttempts_${e.target.value}`);
                 const storedLastFrontendAttemptTime = localStorage.getItem(`lastFailedLoginTime_${e.target.value}`);
                 setFrontendFailedLoginAttempts(parseInt(storedFrontendFailedAttempts || "0", 10));
                 setLastFrontendFailedLoginTime(parseInt(storedLastFrontendAttemptTime || "0", 10));
+
+                // Reset email sent flags when email changes
+                resetEmailSentFlags(e.target.value); // Use the new utility function
               }}
               required
             />
