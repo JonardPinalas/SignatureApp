@@ -1,9 +1,16 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import Notification from "./components/Notification";
 import { supabase } from "../utils/supabaseClient";
 
+// Cooldown for resending verification email
 const RESEND_COOLDOWN_SECONDS = 120;
+
+// Frontend throttling constants
+// These act as a first line of defense to reduce unnecessary backend calls.
+// The backend RPC remains the authoritative source for blocking/throttling.
+const THROTTLE_LIMIT = 5; // Number of failed attempts before temporary throttle
+const THROTTLE_COOLDOWN_SECONDS = 60; // Cooldown duration for temporary throttle
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -11,12 +18,27 @@ const Login = () => {
   const [notification, setNotification] = useState(null);
   const [showEmailVerificationModal, setShowEmailVerificationModal] = useState(false);
   const [showBlockedModal, setShowBlockedModal] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(false);
+  const [showFrontendThrottledModal, setShowFrontendThrottledModal] = useState(false);
+
+  // State for resend email cooldown
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [resendCountdown, setResendCountdown] = useState(0);
+
+  // State for frontend login throttle (local storage based)
+  const [frontendFailedLoginAttempts, setFrontendFailedLoginAttempts] = useState(0);
+  const [lastFrontendFailedLoginTime, setLastFrontendFailedLoginTime] = useState(null);
+  const [loginThrottleCountdown, setLoginThrottleCountdown] = useState(0);
+  const loginThrottleTimerRef = useRef(null);
+
+  // State for backend-driven user status. This will now be updated directly by the RPC response.
+  const [isUserBlockedInDb, setIsUserBlockedInDb] = useState(false);
+  // Removed dbFailedLoginAttempts and dbLastFailedLoginAt as they are not directly used for UI logic anymore
+  // and their source of truth is now the RPC response.
 
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Effect for initial message from registration
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get("message") === "check_email") {
@@ -28,6 +50,7 @@ const Login = () => {
     }
   }, [location, navigate]);
 
+  // Effect for resend email cooldown timer
   useEffect(() => {
     let timer;
     const storedLastResend = localStorage.getItem("lastResendAttempt");
@@ -56,15 +79,139 @@ const Login = () => {
     return () => clearInterval(timer);
   }, []);
 
+  // Effect for frontend login throttle timer (local storage based)
+  // This remains as a client-side optimization to prevent hitting the backend excessively.
+  useEffect(() => {
+    const storedFrontendFailedAttempts = localStorage.getItem(`failedLoginAttempts_${email}`);
+    const storedLastFrontendAttemptTime = localStorage.getItem(`lastFailedLoginTime_${email}`);
+
+    if (storedFrontendFailedAttempts) {
+      setFrontendFailedLoginAttempts(parseInt(storedFrontendFailedAttempts, 10));
+    }
+    if (storedLastFrontendAttemptTime) {
+      setLastFrontendFailedLoginTime(parseInt(storedLastFrontendAttemptTime, 10));
+    }
+
+    if (storedLastFrontendAttemptTime && parseInt(storedFrontendFailedAttempts, 10) >= THROTTLE_LIMIT) {
+      const lastAttempt = parseInt(storedLastFrontendAttemptTime, 10);
+      const timeElapsed = Math.floor((Date.now() - lastAttempt) / 1000);
+      const timeLeft = THROTTLE_COOLDOWN_SECONDS - timeElapsed;
+
+      if (timeLeft > 0) {
+        setLoginThrottleCountdown(timeLeft);
+        setShowFrontendThrottledModal(true);
+        if (loginThrottleTimerRef.current) {
+          clearInterval(loginThrottleTimerRef.current);
+        }
+        loginThrottleTimerRef.current = setInterval(() => {
+          setLoginThrottleCountdown((prev) => {
+            if (prev <= 1) {
+              clearInterval(loginThrottleTimerRef.current);
+              loginThrottleTimerRef.current = null;
+              setShowFrontendThrottledModal(false);
+              localStorage.removeItem(`failedLoginAttempts_${email}`);
+              localStorage.removeItem(`lastFailedLoginTime_${email}`);
+              setFrontendFailedLoginAttempts(0);
+              setLastFrontendFailedLoginTime(null);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      } else {
+        setShowFrontendThrottledModal(false);
+        localStorage.removeItem(`failedLoginAttempts_${email}`);
+        localStorage.removeItem(`lastFailedLoginTime_${email}`);
+        setFrontendFailedLoginAttempts(0);
+        setLastFrontendFailedLoginTime(null);
+      }
+    }
+
+    return () => {
+      if (loginThrottleTimerRef.current) {
+        clearInterval(loginThrottleTimerRef.current);
+      }
+    };
+  }, [email]);
+
+  // Removed the useEffect that fetched user status directly from public.users.
+  // The RPC function will now provide the authoritative status after each login attempt.
+
+  // Function to update failed login attempts in localStorage (for frontend throttle)
+  const updateFrontendFailedAttempts = (currentEmail, increment = true) => {
+    let currentAttempts = parseInt(localStorage.getItem(`failedLoginAttempts_${currentEmail}`) || "0", 10);
+    let newAttempts;
+
+    if (increment) {
+      newAttempts = currentAttempts + 1;
+    } else {
+      newAttempts = 0; // Reset on success
+    }
+
+    setFrontendFailedLoginAttempts(newAttempts);
+    localStorage.setItem(`failedLoginAttempts_${currentEmail}`, newAttempts.toString());
+
+    if (newAttempts > 0 && increment) {
+      const now = Date.now();
+      setLastFrontendFailedLoginTime(now);
+      localStorage.setItem(`lastFailedLoginTime_${currentEmail}`, now.toString());
+    } else {
+      setLastFrontendFailedLoginTime(null);
+      localStorage.removeItem(`lastFailedLoginTime_${currentEmail}`);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setNotification(null);
     setShowEmailVerificationModal(false);
     setShowBlockedModal(false);
+    setShowFrontendThrottledModal(false);
 
     if (!email || !password) {
       setNotification({ message: "Please enter both email and password.", type: "error" });
       return;
+    }
+
+    // --- Frontend Throttle Check (local storage based) ---
+    const currentFrontendAttempts = parseInt(localStorage.getItem(`failedLoginAttempts_${email}`) || "0", 10);
+    const lastFrontendAttemptTime = parseInt(localStorage.getItem(`lastFailedLoginTime_${email}`) || "0", 10);
+
+    if (currentFrontendAttempts >= THROTTLE_LIMIT) {
+      const timeElapsed = Math.floor((Date.now() - lastFrontendAttemptTime) / 1000);
+      const timeLeft = THROTTLE_COOLDOWN_SECONDS - timeElapsed;
+
+      if (timeLeft > 0) {
+        setLoginThrottleCountdown(timeLeft);
+        setShowFrontendThrottledModal(true);
+        setNotification({ message: `Too many failed login attempts. Please try again in ${timeLeft} seconds.`, type: "error" });
+
+        if (loginThrottleTimerRef.current) {
+          clearInterval(loginThrottleTimerRef.current);
+        }
+        loginThrottleTimerRef.current = setInterval(() => {
+          setLoginThrottleCountdown((prev) => {
+            if (prev <= 1) {
+              clearInterval(loginThrottleTimerRef.current);
+              loginThrottleTimerRef.current = null;
+              setShowFrontendThrottledModal(false);
+              localStorage.removeItem(`failedLoginAttempts_${email}`);
+              localStorage.removeItem(`lastFailedLoginTime_${email}`);
+              setFrontendFailedLoginAttempts(0);
+              setLastFrontendFailedLoginTime(null);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+        return;
+      } else {
+        setShowFrontendThrottledModal(false);
+        localStorage.removeItem(`failedLoginAttempts_${email}`);
+        localStorage.removeItem(`lastFailedLoginTime_${email}`);
+        setFrontendFailedLoginAttempts(0);
+        setLastFrontendFailedLoginTime(null);
+      }
     }
 
     try {
@@ -86,75 +233,65 @@ const Login = () => {
       if (authError) {
         loginSuccess = false;
         authErrorMessage = authError.message;
+        updateFrontendFailedAttempts(email, true); // Increment frontend failed attempts
         if (authError.message === "Email not confirmed") {
           setShowEmailVerificationModal(true);
-        } else {
-          // For "Invalid login credentials" or other general auth errors
-          setNotification({ message: authError.message, type: "error" });
         }
       } else if (authData && authData.user) {
         loginSuccess = true;
         authUserId = authData.user.id;
+        updateFrontendFailedAttempts(email, false); // Reset frontend failed attempts
       } else {
-        // This case should ideally not happen for signInWithPassword
         loginSuccess = false;
         authErrorMessage = "An unexpected response from Supabase Auth.";
-        setNotification({ message: authErrorMessage, type: "error" });
+        updateFrontendFailedAttempts(email, true); // Increment frontend failed attempts
       }
 
-      // --- STEP 2: Call RPC to track the attempt and apply business logic ---
+      // --- STEP 2: Call RPC to track the attempt and get backend status ---
+      // This RPC call is now the central point for updating backend state and getting its response.
       const { data: rpcResult, error: rpcError } = await supabase.rpc("track_login_attempt", {
         p_email: email,
-        p_user_id: authUserId, // Pass userId if successful
+        p_user_id: authUserId, // Pass userId if successful, null otherwise
         p_is_success: loginSuccess,
         p_ip_address: ipAddress,
         p_user_agent: userAgent,
-        p_auth_error_message: authErrorMessage, // Pass the original auth error message
+        p_auth_error_message: authErrorMessage,
       });
 
       if (rpcError) {
         console.error("RPC Error during tracking:", rpcError);
-        setNotification({ message: `An error occurred while tracking login attempt: ${rpcError.message}`, type: "error" });
-        // If RPC itself fails, we still might have the auth session, but log the issue
-        return;
+        setNotification({ message: "A system error occurred. Please try again later.", type: "error" });
+        return; // Stop further processing if RPC itself failed
       }
 
-      // --- STEP 3: Handle results from RPC (blocking, messages) ---
-      if (rpcResult && rpcResult.blocked) {
+      // --- STEP 3: Handle response from RPC ---
+      // The RPC result contains 'success', 'message', and 'blocked'
+      const { success: backendRpcSuccess, message: backendRpcMessage, blocked: backendRpcBlocked } = rpcResult;
+
+      setIsUserBlockedInDb(backendRpcBlocked); // Update global blocked state from RPC
+
+      if (backendRpcBlocked) {
+        // Account is permanently blocked by backend
         setShowBlockedModal(true);
-        setNotification(null); // Modal takes precedence
-        // Ensure user is logged out if they were blocked by RPC
-        if (loginSuccess) {
-          // If they somehow successfully logged in but were then blocked by RPC
-          await supabase.auth.signOut();
-        }
-        return;
-      }
-
-      if (rpcResult && rpcResult.message && !loginSuccess) {
-        // Display RPC message for failed attempts (e.g., too many attempts, temporary lockout)
-        setNotification({ message: rpcResult.message, type: "error" });
-        return;
-      }
-
-      // --- STEP 4: Final actions if login was successful and not blocked ---
-      if (loginSuccess) {
+        setNotification({ message: backendRpcMessage, type: "error" });
+      } else if (backendRpcSuccess) {
+        // Login was successful and not blocked by backend
+        setNotification({ message: backendRpcMessage, type: "success" });
         const userRole = authData.user.user_metadata?.role || "user";
-        setNotification({ message: "Login successful!", type: "success" });
-
         if (userRole === "admin") {
           setTimeout(() => navigate("/admin/dashboard"), 500);
         } else {
           setTimeout(() => navigate("/user/dashboard"), 500);
         }
       } else {
-        // This path should ideally be covered by specific authError or rpcResult messages
-        // but as a fallback:
-        setNotification({ message: "Login failed. Please check your credentials.", type: "error" });
+        // Login failed, and potentially temporarily throttled by backend
+        setNotification({ message: backendRpcMessage, type: "error" });
+        // The backendRpcMessage will contain the "try again in X seconds" if applicable.
       }
     } catch (err) {
       console.error("Overall login process error:", err);
       setNotification({ message: "An unexpected error occurred during the login process.", type: "error" });
+      updateFrontendFailedAttempts(email, true); // Increment frontend failed attempts even for unexpected errors
     }
   };
 
@@ -222,12 +359,26 @@ const Login = () => {
               type="email"
               id="email"
               className="w-full px-4 py-3 rounded-md border border-gray-300 dark:border-gray-700
-                            bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white
-                            focus:ring-2 focus:ring-[var(--color-button-primary)] focus:border-transparent
-                            transition duration-200 ease-in-out placeholder-gray-400"
+                                bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white
+                                focus:ring-2 focus:ring-[var(--color-button-primary)] focus:border-transparent
+                                transition duration-200 ease-in-out placeholder-gray-400"
               placeholder="you@example.com"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                // Clear existing throttle/block modals when email changes
+                setShowFrontendThrottledModal(false);
+                setLoginThrottleCountdown(0);
+                if (loginThrottleTimerRef.current) {
+                  clearInterval(loginThrottleTimerRef.current);
+                  loginThrottleTimerRef.current = null;
+                }
+                // Load new email's persisted state for frontend throttle
+                const storedFrontendFailedAttempts = localStorage.getItem(`failedLoginAttempts_${e.target.value}`);
+                const storedLastFrontendAttemptTime = localStorage.getItem(`lastFailedLoginTime_${e.target.value}`);
+                setFrontendFailedLoginAttempts(parseInt(storedFrontendFailedAttempts || "0", 10));
+                setLastFrontendFailedLoginTime(parseInt(storedLastFrontendAttemptTime || "0", 10));
+              }}
               required
             />
           </div>
@@ -240,9 +391,9 @@ const Login = () => {
               type="password"
               id="password"
               className="w-full px-4 py-3 rounded-md border border-gray-300 dark:border-gray-700
-                            bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white
-                            focus:ring-2 focus:ring-[var(--color-button-primary)] focus:border-transparent
-                            transition duration-200 ease-in-out placeholder-gray-400"
+                                bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white
+                                focus:ring-2 focus:ring-[var(--color-button-primary)] focus:border-transparent
+                                transition duration-200 ease-in-out placeholder-gray-400"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -253,10 +404,11 @@ const Login = () => {
 
           <button
             type="submit"
-            className="w-full bg-[var(--color-button-primary)] hover:bg-[var(--color-button-primary-hover)]
-                          text-white font-bold py-3 px-6 rounded-md shadow-lg
-                          transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2
-                          focus:ring-[var(--color-button-primary)] focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+            disabled={showFrontendThrottledModal || isUserBlockedInDb} // Disable button if throttled or blocked in DB
+            className={`w-full text-white font-bold py-3 px-6 rounded-md shadow-lg
+                        transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2
+                        focus:ring-[var(--color-button-primary)] focus:ring-offset-2 dark:focus:ring-offset-gray-900
+                        ${showFrontendThrottledModal || isUserBlockedInDb ? "bg-gray-400 cursor-not-allowed" : "bg-[var(--color-button-primary)] hover:bg-[var(--color-button-primary-hover)]"}`}
           >
             Login
           </button>
@@ -302,6 +454,7 @@ const Login = () => {
         </div>
       )}
 
+      {/* Backend-triggered block modal */}
       {showBlockedModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
           <div className="bg-white dark:bg-[#1a1a1a] p-8 rounded-lg shadow-xl max-w-sm w-full text-center">
@@ -311,6 +464,22 @@ const Login = () => {
             </p>
             <button
               onClick={() => setShowBlockedModal(false)}
+              className="bg-[var(--color-button-primary)] hover:bg-[var(--color-button-primary-hover)] text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-200 ease-in-out"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Frontend-triggered throttle modal */}
+      {showFrontendThrottledModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+          <div className="bg-white dark:bg-[#1a1a1a] p-8 rounded-lg shadow-xl max-w-sm w-full text-center">
+            <h3 className="text-2xl font-bold mb-4 text-yellow-600 dark:text-yellow-400">Too Many Login Attempts!</h3>
+            <p className="text-gray-700 dark:text-gray-300 mb-6">You have made too many failed login attempts. Please try again in {loginThrottleCountdown} seconds.</p>
+            <button
+              onClick={() => setShowFrontendThrottledModal(false)}
               className="bg-[var(--color-button-primary)] hover:bg-[var(--color-button-primary-hover)] text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-200 ease-in-out"
             >
               Close
