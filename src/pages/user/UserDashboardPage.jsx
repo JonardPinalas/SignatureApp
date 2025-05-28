@@ -329,7 +329,7 @@ const UserDashboardPage = () => {
                 Upload New Document
               </Link>
               <Link
-                to="/user/signature-requests/new"
+                to="/user/signature-requests"
                 style={{
                   ...dashboardStyles.secondaryButton,
                   ...(hoveredActionButton === "requestSignature" &&

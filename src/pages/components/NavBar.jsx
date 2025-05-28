@@ -85,7 +85,9 @@ const NavBar = forwardRef((props, ref) => {
         <Link to="/user/documents" style={styles.navLink}>
           My Documents
         </Link>
-        {/* <Link to="/user/signature-requests" style={styles.navLink}>Signatures</Link> */}
+        <Link to="/user/signature-requests" style={styles.navLink}>
+          Signatures
+        </Link>
 
         {/* Admin-specific links */}
         {userRole === "admin" && (

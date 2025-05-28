@@ -7,7 +7,10 @@ import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import UserDashboardPage from "./pages/user/UserDashboardPage";
-import 
+import MyDocumentsPage from "./pages/user/MyDocumentsPage";
+import DocumentUploadPage from "./pages/user/DocumentUploadPage";
+import DocumentDetailsPage from "./pages/user/DocumentDetailsPage";
+import SignatureRequestsPage from "./pages/user/SignatureRequestsListPage";
 
 function AppRoutes({ session }) {
   const location = useLocation();
@@ -60,6 +63,10 @@ function AppRoutes({ session }) {
 
           {/* Authenticated Routes */}
           <Route path="/user/dashboard" element={<UserDashboardPage />} />
+          <Route path="/user/documents" element={<MyDocumentsPage />} />
+          <Route path="/user/documents/upload" element={<DocumentUploadPage />} />
+          <Route path="/user/documents/:id" element={<DocumentDetailsPage />} />
+          <Route path="/user/signature-requests" element={<SignatureRequestsPage />} />
 
           {/* 404 */}
           <Route

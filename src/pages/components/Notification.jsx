@@ -2,26 +2,27 @@ import React, { useEffect, useState } from "react";
 
 const Notification = ({ message, type, onClose, duration = 3000 }) => {
   const [isVisible, setIsVisible] = useState(false);
-  const [shouldRender, setShouldRender] = useState(false); // New state to control rendering after animation
+  const [shouldRender, setShouldRender] = useState(false); // Controls actual rendering in DOM
 
   // Effect for showing the notification
   useEffect(() => {
     if (message) {
-      setShouldRender(true); // Start rendering
+      setShouldRender(true); // Start rendering the component
       const showTimer = setTimeout(() => {
-        setIsVisible(true); // Trigger fade-in/slide-down
+        setIsVisible(true); // Trigger the slide-in/fade-in animation
       }, 50); // Small delay to allow element to be in DOM before transition starts
 
       // Automatically hide after 'duration' milliseconds
       const hideTimer = setTimeout(() => {
-        setIsVisible(false); // Trigger fade-out/slide-up
+        setIsVisible(false); // Trigger the slide-out/fade-out animation
       }, duration + 50); // Add a small buffer to the duration
 
       return () => {
         clearTimeout(showTimer);
         clearTimeout(hideTimer);
-      }; // Clean up timers
+      }; // Clean up timers on unmount or message change
     } else {
+      // If message is cleared externally, ensure hidden and not rendered
       setIsVisible(false);
       setShouldRender(false);
     }
@@ -29,11 +30,12 @@ const Notification = ({ message, type, onClose, duration = 3000 }) => {
 
   // Effect for unmounting after hide animation completes
   useEffect(() => {
+    // Only proceed if not visible but still rendered (meaning it's animating out)
     if (!isVisible && shouldRender) {
       const unmountTimer = setTimeout(() => {
-        setShouldRender(false); // Stop rendering after animation
+        setShouldRender(false); // Stop rendering after animation completes
         if (onClose) {
-          onClose(); // Call the parent's onClose handler
+          onClose(); // Call the parent's onClose handler if provided
         }
       }, 300); // This duration should match your CSS transition duration
 
@@ -42,7 +44,7 @@ const Notification = ({ message, type, onClose, duration = 3000 }) => {
   }, [isVisible, shouldRender, onClose]);
 
   if (!shouldRender) {
-    return null; // Don't render if shouldRender is false
+    return null; // Don't render anything if shouldRender is false
   }
 
   // Determine styling based on message type
@@ -71,10 +73,11 @@ const Notification = ({ message, type, onClose, duration = 3000 }) => {
 
   return (
     <div
-      className={`fixed top-4 left-1/2 -translate-x-1/2 p-4 rounded-lg shadow-lg max-w-sm w-full z-50
+      // Key changes are here: `bottom-4 right-4` for position and `translate-y-0` for entry/exit
+      className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg max-w-sm w-full z-50
                   flex items-center justify-between border-l-4 transform transition-all duration-300 ease-in-out
                   ${bgColorClass} ${textColorClass} ${borderColorClass}
-                  ${isVisible ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0"}`}
+                  ${isVisible ? "translate-y-0 opacity-100" : "translate-y-full opacity-0"}`} // Changed -translate-y-full to translate-y-full for bottom entry
     >
       <p className="flex-grow text-sm font-medium">{message}</p>
       <button

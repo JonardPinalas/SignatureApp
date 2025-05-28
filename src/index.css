@@ -16,11 +16,37 @@
   --brand-heading: #1e293b; /* Slate-800 equivalent */
   --brand-card: #ffffff; /* White for cards */
   --brand-border: #e2e8f0; /* Light border for cards */
+  --brand-border-light: #e2e8f0; /* Adding this for consistency with your usage */
 
   /* User-defined primary button/accent colors (Orange for light mode) */
   --color-button-primary: #ff8c00; /* Vibrant Orange */
   --color-button-primary-hover: #e67a00; /* Darker Orange for hover */
   --color-text-accent-light: #ffb040; /* Lighter Orange for accents */
+
+  /* Additional colors you used in your JSX, assuming you want them theme-aware */
+  --color-secondary: #6b7280;
+  --color-secondary-hover: #4b5563;
+  --color-info: #3b82f6;
+  --color-info-hover: #2563eb;
+  --color-info-bg: #dbeafe;
+  --color-info-text: #1e40af;
+  --color-success: #22c55e;
+  --color-success-hover: #16a34a;
+  --color-success-bg: #d1fae5;
+  --color-success-text: #065f46;
+  --color-error: #ef4444;
+  --color-error-hover: #dc2626;
+  --color-error-bg: #fee2e2;
+  --color-error-text: #991b1b;
+  --color-warning-bg: #fffbeb;
+  --color-warning-text: #92400e;
+  --color-tertiary: #8b5cf6;
+  --color-tertiary-hover: #7c3aed;
+  --color-grey: #6b7280;
+  --color-grey-hover: #4b5563;
+
+  /* Custom Spacing / Heights */
+  --navbar-height: 80px; /* Example value, adjust as needed */
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -48,11 +74,101 @@ body {
     --brand-heading: #f7fafc;
     --brand-card: #1f2937; /* Dark card background */
     --brand-border: #4a5568;
+    --brand-border-light: #4a5568; /* For dark mode border-b */
 
     /* User-defined primary button/accent colors (Orange for dark mode) */
     --color-button-primary: #f97316; /* Your specified orange */
     --color-button-primary-hover: #c2410c; /* Your specified darker orange */
     --color-text-accent-light: #fdba74; /* Your specified lighter orange */
+
+    /* Dark mode for other colors, if applicable */
+    --color-secondary: #9ca3af;
+    --color-secondary-hover: #e5e7eb;
+    --color-info: #60a5fa;
+    --color-info-hover: #3b82f6;
+    --color-info-bg: #1e3a8a;
+    --color-info-text: #bfdbfe;
+    --color-success: #4ade80;
+    --color-success-hover: #22c55e;
+    --color-success-bg: #065f46;
+    --color-success-text: #a7f3d0;
+    --color-error: #f87171;
+    --color-error-hover: #ef4444;
+    --color-error-bg: #7f1d1d;
+    --color-error-text: #fecaca;
+    --color-warning-bg: #78350f;
+    --color-warning-text: #fde68a;
+    --color-tertiary: #a78bfa;
+    --color-tertiary-hover: #8b5cf6;
+    --color-grey: #9ca3af;
+    --color-grey-hover: #e5e7eb;
+  }
+}
+
+/* Tailwind CSS v4 Configuration within CSS */
+@theme {
+  /* Colors */
+  --color-brand-bg-light: var(--brand-bg-light);
+  --color-brand-bg-dark: var(--brand-bg-dark);
+  --color-brand-text: var(--brand-text);
+  --color-brand-text-light: var(--brand-text-light);
+  --color-brand-heading: var(--brand-heading);
+  --color-brand-card: var(--brand-card);
+  --color-brand-border: var(--brand-border);
+  --color-brand-border-light: var(--brand-border-light);
+
+  --color-color-button-primary: var(--color-button-primary);
+  --color-color-button-primary-hover: var(--color-button-primary-hover);
+  --color-color-text-accent-light: var(--color-text-accent-light);
+
+  --color-color-secondary: var(--color-secondary);
+  --color-color-secondary-hover: var(--color-secondary-hover);
+  --color-color-info: var(--color-info);
+  --color-color-info-hover: var(--color-info-hover);
+  --color-color-info-bg: var(--color-info-bg);
+  --color-color-info-text: var(--color-info-text);
+  --color-color-success: var(--color-success);
+  --color-color-success-hover: var(--color-success-hover);
+  --color-color-success-bg: var(--color-success-bg);
+  --color-color-success-text: var(--color-success-text);
+  --color-color-error: var(--color-error);
+  --color-color-error-hover: var(--color-error-hover);
+  --color-color-error-bg: var(--color-error-bg);
+  --color-color-error-text: var(--color-error-text);
+  --color-color-warning-bg: var(--color-warning-bg);
+  --color-color-warning-text: var(--color-warning-text);
+  --color-color-tertiary: var(--color-tertiary);
+  --color-color-tertiary-hover: var(--color-tertiary-hover);
+  --color-color-grey: var(--color-grey);
+  --color-color-grey-hover: var(--color-grey-hover);
+
+  /* Spacing and Sizing (for custom calculations) */
+  --spacing-screen-minus-navbar: calc(100vh - var(--navbar-height));
+
+  /* Font Family */
+  --font-inter: system-ui, Avenir, Helvetica, Arial, sans-serif; /* Or 'Inter', sans-serif if you have Inter font loaded */
+
+  /* Shadows (for specific custom shadows) */
+  --shadow-sm-light: 0 2px 4px rgba(0, 0, 0, 0.05); /* Direct value for drop-shadow */
+  --shadow-card: 0 6px 20px rgba(0, 0, 0, 0.08); /* Direct value for card shadow */
+}
+
+/* Custom Utilities (if needed for specific patterns not directly covered by @theme) */
+/* This is less common for simple colors but useful for more complex patterns */
+/* For example, if you wanted a specific type of shadow that isn't a direct color mapping */
+@utilities {
+  .drop-shadow-sm-light {
+    filter: drop-shadow(var(--shadow-sm-light));
+  }
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+  .min-h-screen-minus-navbar {
+    min-height: var(--spacing-screen-minus-navbar);
+  }
+  /* For font family, if --font-inter isn't enough, you might need a custom utility */
+  .font-inter {
+    font-family: var(--font-inter);
   }
 }
 
