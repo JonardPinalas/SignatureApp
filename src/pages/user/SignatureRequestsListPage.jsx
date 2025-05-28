@@ -138,7 +138,8 @@ const SignatureRequestsListPage = () => {
           documents (
             id,
             title,
-            owner_id
+            owner_id,
+            original_hash  
           ),
           document_versions (
             id,
@@ -197,6 +198,7 @@ const SignatureRequestsListPage = () => {
           document_id: req.documents?.id,
           document_title: req.documents?.title || "N/A",
           document_owner_id: req.documents?.owner_id,
+          document_original_hash: req.documents?.original_hash, // Map the fetched original_hash
           document_version_id: req.document_versions?.id,
           document_version_number: req.document_versions?.version_number || 0,
         }));
@@ -254,8 +256,9 @@ const SignatureRequestsListPage = () => {
    * @param {string} newStatus - The new status to set.
    * @param {string} [timestampField=null] - The timestamp field to update (e.g., 'signed_at').
    * @param {string} [timestampValue=null] - The timestamp value.
+   * @param {string} [signedDocumentHash=null] - The signed document hash to update.
    */
-  const updateRequestStatusLocally = (id, newStatus, timestampField = null, timestampValue = null) => {
+  const updateRequestStatusLocally = (id, newStatus, timestampField = null, timestampValue = null, signedDocumentHash = null) => {
     setSignatureRequests((prev) =>
       prev.map((req) =>
         req.id === id
@@ -263,6 +266,7 @@ const SignatureRequestsListPage = () => {
               ...req,
               status: newStatus,
               ...(timestampField && { [timestampField]: timestampValue }),
+              ...(signedDocumentHash && { signed_document_hash: signedDocumentHash }), // Update local state with hash
             }
           : req
       )
@@ -276,8 +280,9 @@ const SignatureRequestsListPage = () => {
    * @param {string} documentId - The ID of the associated document.
    * @param {string} documentVersionId - The ID of the associated document version.
    * @param {string} actionType - The type of action ('sign', 'reject', 'cancel').
+   * @param {string} [originalHash=null] - The original hash of the document (passed for 'sign' action).
    */
-  const initiateProtectedAction = async (id, documentId, documentVersionId, actionType) => {
+  const initiateProtectedAction = async (id, documentId, documentVersionId, actionType, originalHash = null) => {
     if (!currentUser) {
       setNotification({ message: "User not authenticated.", type: "error" });
       return;
@@ -304,11 +309,11 @@ const SignatureRequestsListPage = () => {
 
       if (actionsRequiringMFA.includes(actionType) && hasVerifiedTotp) {
         // Store the action details to be performed after successful MFA
-        setPendingAction({ id, documentId, documentVersionId, actionType });
+        setPendingAction({ id, documentId, documentVersionId, actionType, originalHash }); // Pass originalHash
         setShowChallengeModal(true); // Show the challenge modal
       } else {
         // No MFA required or enabled, proceed directly with the action
-        await performAction(id, documentId, documentVersionId, actionType);
+        await performAction(id, documentId, documentVersionId, actionType, originalHash); // Pass originalHash
       }
     } catch (err) {
       console.error("Error during MFA check for protected action:", err);
@@ -328,9 +333,10 @@ const SignatureRequestsListPage = () => {
    * @param {string} documentId - The ID of the associated document.
    * @param {string} documentVersionId - The ID of the associated document version.
    * @param {string} actionType - The type of action ('sign', 'reject', 'cancel').
+   * @param {string} [originalHash=null] - The original hash of the document (used for 'sign' action).
    * @param {Object} [session=null] - The updated session object from MFA challenge (optional).
    */
-  const performAction = async (id, documentId, documentVersionId, actionType, session = null) => {
+  const performAction = async (id, documentId, documentVersionId, actionType, originalHash = null, session = null) => {
     setLoading(true);
 
     // Custom confirmation dialog (replaces window.confirm)
@@ -369,6 +375,7 @@ const SignatureRequestsListPage = () => {
     let timestampField = "";
     let eventType = "";
     let successMessage = "";
+    let signedDocumentHashToStore = null; // Variable to hold the hash for storage
 
     // Determine status, timestamp field, event type, and success message based on action type
     switch (actionType) {
@@ -377,6 +384,7 @@ const SignatureRequestsListPage = () => {
         timestampField = "signed_at";
         eventType = "DOCUMENT_SIGNED";
         successMessage = "Document signed successfully.";
+        signedDocumentHashToStore = originalHash; // Use the passed originalHash
         break;
       case "reject":
         newStatus = "declined";
@@ -407,10 +415,19 @@ const SignatureRequestsListPage = () => {
 
       // Add specific fields for 'sign' and 'cancel' actions
       if (actionType === "sign") {
+        // Ensure originalHash is available before assigning to signed_document_hash
+        if (!signedDocumentHashToStore) {
+          // This should ideally not happen if original_hash is always fetched/passed correctly.
+          // However, as a fallback or strict check:
+          console.error("Error: Original document hash is missing for signing action.");
+          throw new Error("Original document hash is missing, cannot complete signing.");
+        }
+
         Object.assign(updatePayload, {
           signer_ip_address: userMeta.ip,
           signer_user_agent: userMeta.userAgent,
           signing_location: userMeta.location,
+          signed_document_hash: signedDocumentHashToStore, // Store the hash here
         });
       } else if (actionType === "cancel") {
         updatePayload.cancelled_by_user_id = currentUser.id;
@@ -433,7 +450,7 @@ const SignatureRequestsListPage = () => {
       }
 
       // Update local state for immediate UI feedback
-      updateRequestStatusLocally(id, newStatus, timestampField, actionTimestamp);
+      updateRequestStatusLocally(id, newStatus, timestampField, actionTimestamp, signedDocumentHashToStore); // Pass hash to local update
       setNotification({ message: successMessage, type: "success" });
 
       // Log the action in the audit_logs table
@@ -449,13 +466,14 @@ const SignatureRequestsListPage = () => {
           status: newStatus,
           userAgent: userMeta.userAgent,
           location: userMeta.location,
+          ...(actionType === "sign" && { signed_document_hash: signedDocumentHashToStore }), // Include signed hash in audit
           ...(actionType === "cancel" && { cancelled_by_user_id: currentUser.id }),
         },
       });
     } catch (error) {
       // Only set a generic error if no specific error message was already set
       if (!notification.message) {
-        setNotification({ message: `An unexpected error occurred during ${actionType}.`, type: "error" });
+        setNotification({ message: `An unexpected error occurred during ${actionType}: ${error.message}`, type: "error" });
       }
     } finally {
       setLoading(false);
@@ -481,6 +499,7 @@ const SignatureRequestsListPage = () => {
         pendingAction.documentId,
         pendingAction.documentVersionId,
         pendingAction.actionType,
+        pendingAction.originalHash, // Pass originalHash from pending action
         session // Pass the new session if needed by performAction
       );
       setPendingAction(null); // Clear pending action
@@ -651,7 +670,7 @@ const SignatureRequestsListPage = () => {
                       {activeTab === "received" && request.status === "pending" && (
                         <>
                           <button
-                            onClick={() => initiateProtectedAction(request.id, request.document_id, request.document_version_id, "sign")}
+                            onClick={() => initiateProtectedAction(request.id, request.document_id, request.document_version_id, "sign", request.document_original_hash)}
                             className="flex-1 px-4 py-2 bg-color-button-primary text-white rounded-md hover:bg-color-button-primary-hover transition-colors duration-200 text-sm z-10 pointer-events-auto cursor-pointer"
                             disabled={loading}
                           >
@@ -737,12 +756,14 @@ const SignatureRequestsListPage = () => {
       )}
 
       {/* Challenge Modal */}
-      <ChallengeModal
-        show={showChallengeModal}
-        onClose={handleChallengeCancelled} // If user closes the challenge modal, cancel the action
-        onVerified={handleChallengeVerified} // If successfully verified, proceed with the action
-        requiredFactors={["totp"]} // Specify which factors are required for this challenge
-      />
+      {showChallengeModal && (
+        <ChallengeModal
+          show={showChallengeModal}
+          onClose={handleChallengeCancelled} // If user closes the challenge modal, cancel the action
+          onVerified={handleChallengeVerified} // If successfully verified, proceed with the action
+          requiredFactors={["totp"]} // Specify which factors are required for this challenge
+        />
+      )}
     </div>
   );
 };

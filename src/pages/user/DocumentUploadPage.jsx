@@ -4,6 +4,33 @@ import { supabase } from "../../utils/supabaseClient";
 import Notification from "../components/Notification";
 import { useNavigate } from "react-router-dom";
 
+
+async function calculateFileHash(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const buffer = event.target.result; // ArrayBuffer
+        // Use Web Crypto API for SHA-256 hashing
+        const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+        // Convert ArrayBuffer to Array of bytes
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        // Convert bytes to hex string
+        const hexHash = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+        resolve(hexHash);
+      } catch (error) {
+        console.error("Error during hash calculation:", error);
+        reject(new Error("Failed to calculate file hash."));
+      }
+    };
+    reader.onerror = (error) => {
+      console.error("FileReader error:", error);
+      reject(new Error("Error reading file for hashing."));
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 const DocumentUploadPage = () => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [title, setTitle] = useState("");
@@ -57,7 +84,18 @@ const DocumentUploadPage = () => {
     }
 
     setUploading(true);
-    setNotification({ message: "Uploading document...", type: "info" });
+    setNotification({ message: "Calculating file hash and preparing upload...", type: "info" });
+
+    let fileHash = null;
+    try {
+      // Calculate the hash of the selected file
+      fileHash = await calculateFileHash(selectedFile);
+    } catch (hashError) {
+      console.error("Error calculating file hash:", hashError);
+      setNotification({ message: `Failed to calculate file hash: ${hashError.message}`, type: "error" });
+      setUploading(false);
+      return;
+    }
 
     try {
       // 1. Insert into documents table
@@ -71,6 +109,7 @@ const DocumentUploadPage = () => {
             status: "draft", // Initial status
             latest_version_number: 0, // Will be updated to 1 after first version is added
             current_document_version_id: null, // Will be linked after version is added
+            original_hash: fileHash, // <-- Store the calculated hash here!
           },
         ])
         .select()
@@ -135,11 +174,7 @@ const DocumentUploadPage = () => {
 
       if (updateDocError) {
         // This is a critical error. The document record is out of sync.
-        // The file and version record exist, but the main document points to null.
-        console.error(
-          "Critical error: Failed to link document to its first version.",
-          updateDocError
-        );
+        console.error("Critical error: Failed to link document to its first version.", updateDocError);
         setNotification({
           message: "Document uploaded, but failed to link to its version. Please contact support.",
           type: "error",
@@ -168,9 +203,7 @@ const DocumentUploadPage = () => {
 
   return (
     <div style={styles.pageContainer}>
-      {notification.message && (
-        <Notification message={notification.message} type={notification.type} />
-      )}
+      {notification.message && <Notification message={notification.message} type={notification.type} />}
 
       <h1 style={styles.heading}>Upload New Document</h1>
       <p style={styles.subheading}>Start by uploading your first document to the system.</p>
@@ -180,15 +213,7 @@ const DocumentUploadPage = () => {
           <label htmlFor="documentTitle" style={styles.label}>
             Document Title:
           </label>
-          <input
-            type="text"
-            id="documentTitle"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g., Q2 Financial Report"
-            required
-            style={styles.input}
-          />
+          <input type="text" id="documentTitle" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., Q2 Financial Report" required style={styles.input} />
         </div>
 
         <div style={styles.formGroup}>
@@ -209,14 +234,7 @@ const DocumentUploadPage = () => {
           <label htmlFor="fileUpload" style={styles.label}>
             Select File:
           </label>
-          <input
-            type="file"
-            id="fileUpload"
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            required
-            style={styles.fileInput}
-          />
+          <input type="file" id="fileUpload" ref={fileInputRef} onChange={handleFileChange} required style={styles.fileInput} />
           {selectedFile && (
             <p style={styles.fileName}>
               Selected: {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
